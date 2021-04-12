@@ -8,7 +8,7 @@
     <title>Map</title>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script async
-        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAt376j1Y6DvebaemB6pxJVgwV6srVULpQ">
+        src="https://maps.googleapis.com/maps/api/js?key=">
     </script>
     <style>
         #map {

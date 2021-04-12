@@ -10,7 +10,7 @@
                     "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY");
 
     for ($i = 0; $i < count($states); $i++) {
-        $url = 'https://developer.nrel.gov/api/alt-fuel-stations/v1.json?api_key=sqNKgMX0LTp2sDcdzJ1Pjf1ziNE4cel8vev9AU5p&state='.$states[$i];
+        $url = "https://developer.nrel.gov/api/alt-fuel-stations/v1.json?api_key={$key}&state={$states[$i]}";
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
