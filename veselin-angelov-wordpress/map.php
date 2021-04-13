@@ -43,39 +43,18 @@
 <body>
     <script>
         let markers = [];
+        let map;
 
-        function getCount(map) {
-            $.ajax({
-                type: 'GET',
-                url: '/index.php/data?count=1',
-                dataType: 'json',
-                success: function (data) {
-                    console.log(data.count);
-                    for (let index = 0; index < data.count/1000; index++) {
-                        getData(map, index);
-                    }
-
-                },
-            });
-        }
-
-        function getData(map, part) {
-            $.ajax({
-                type: 'GET',
-                url: '/index.php/data?part=' + part,
-                dataType: 'json',
-                success: function (data) {
-                    for (const index in data) {
-                        let point = data[index];
-                        let marker = new google.maps.Marker({
-                            position: new google.maps.LatLng(point.latitude, point.longitude),
-                            title: point.id,
-                            map: map
-                        });
-                        markers.push(marker);
-                    }                
-                },
-            });
+        function addMarkers(data) {
+            for (const index in data) {
+                let point = data[index];
+                let marker = new google.maps.Marker({
+                    position: new google.maps.LatLng(point.latitude, point.longitude),
+                    title: point.id,
+                    map: map
+                });
+                markers.push(marker);
+            }                
         }
 
         function setMarkers(map) {
@@ -84,8 +63,58 @@
             }
         }
 
+        function getCount() {
+            $.ajax({
+                type: 'GET',
+                url: '/index.php/data?count=1',
+                dataType: 'json',
+                success: function (data) {
+                    console.log(data.count);
+                    for (let index = 0; index < data.count/1000; index++) {
+                        let query = 'part=' + index;
+                        getData(query);
+                    }
+                },
+            });
+        }
+
+        function getData(query) {
+            $.ajax({
+                type: 'GET',
+                url: '/index.php/data?' + query,
+                dataType: 'json',
+                success: function (data) {
+                    addMarkers(data);
+                }
+            });
+        }
+
         function filter() {
-            $("#criteria").val();
+            setMarkers(null);
+            markers = [];
+            let val = $("#criteria").val();
+            if (val === 'state') {
+                let query = 'state=' + $("#state").val() + '&city=' + $("#state-city").val();
+                getData(query);
+            }
+            else if (val === 'open-date') {
+                let query = 'open-date-start=' + $("#open-date-start").val() + '&open-date-end=' + $("#open-date-end").val();
+                getData(query);
+            }
+            else if (val === 'coordinates') {
+                let latitude = parseFloat($("#coordinates-latitude").val()).toFixed(2);
+                // console.log((latitude).toFixed(2));
+                let longitude = parseFloat($("#coordinates-longitude").val()).toFixed(2);
+                let query = 'latitude=' + latitude + '&longitude=' + longitude;
+                console.log(query);
+                getData(query);
+            }
+        }
+
+        function showAll() {
+            setMarkers(null);
+            markers = [];
+            getCount();
         }
 
         $(document).ready(function () {
@@ -112,7 +141,7 @@
                     center: {lat: 39.793487, lng: -99.242224},
                     zoom: 4.7
                 });
-                // getCount(map);
+                // getCount();
             }, 100);
         });
     </script>
@@ -198,7 +227,7 @@
         </div>
         <button onclick="filter()">Filter</button>
     </div>
-    <button class="btn" onclick="setMarkers(null)">Clear</button>
+    <button class="btn" onclick="showAll()">Show All</button>
     <div id="map"></div>
 </body>
 </html>

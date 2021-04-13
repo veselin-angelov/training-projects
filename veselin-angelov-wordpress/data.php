@@ -10,24 +10,22 @@
         $filters[$filter[0]] = $filter[1];
     }
 
-    // print_r($filters);
-
-    
-    // print_r($count);
-    // echo $count/1000;
-    // for ($i = 0; $i < $count/10000; $i++) {
-    //     // echo $i*1000;
-    //     $offset = $i*10000;
-    //     $locations = $wpdb->get_results("SELECT * FROM locations LIMIT 10000 OFFSET {$offset};");
-    //     echo json_encode($locations);
-    // }
-    // $part = $_SERVER['QUERY_STRING'];
-    // // $part = explode('=', $part);
-    // print_r(json_encode($part, true), true);
-    // echo $part[1];
-
     if ($filters['state']) {
-        $locations = $wpdb->get_results("SELECT * FROM locations WHERE state='{$filters['state']}';");
+        $q = "SELECT * FROM locations WHERE state='{$filters['state']}' AND city LIKE '%{$filters['city']}%';";
+        $locations = $wpdb->get_results($q);
+        echo json_encode($locations);
+    }
+
+    if ($filters['open-date-start'] && $filters['open-date-end']) {
+        $q = "SELECT * FROM locations WHERE open_date BETWEEN '{$filters['open-date-start']}' AND '{$filters['open-date-end']}';";
+        $locations = $wpdb->get_results($q);
+        echo json_encode($locations);
+    }
+
+    if ($filters['latitude'] && $filters['longitude']) {
+        $q = "SELECT * FROM locations WHERE latitude LIKE '{$filters['latitude']}%' AND longitude LIKE '{$filters['open-date-end']}%';";
+        // echo $q;
+        $locations = $wpdb->get_results($q);
         echo json_encode($locations);
     }
 
