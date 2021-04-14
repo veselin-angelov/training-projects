@@ -102,9 +102,8 @@
                 getData(query);
             }
             else if (val === 'coordinates') {
-                let latitude = parseFloat($("#coordinates-latitude").val()).toFixed(2);
-                // console.log((latitude).toFixed(2));
-                let longitude = parseFloat($("#coordinates-longitude").val()).toFixed(2);
+                let latitude = $("#coordinates-latitude").val();
+                let longitude = $("#coordinates-longitude").val();
                 let query = 'latitude=' + latitude + '&longitude=' + longitude;
                 console.log(query);
                 getData(query);
@@ -146,11 +145,6 @@
         });
     </script>
     <div id="filter-buttons">
-        <!-- <button class="btn" onclick="filterSelection('all')"> Show all</button>
-        <button class="btn" onclick="filterSelection('state')"> State</button>
-        <button class="btn" onclick="filterSelection('city')"> City</button>
-        <button class="btn" onclick="filterSelection('open-date')"> Open Date</button>
-        <button class="btn" onclick="filterSelection('coordinates')"> Coordinates</button> -->
         <select name="criteria" id="criteria">
             <option value="state">State</option>
             <option value="open-date">Open date</option>

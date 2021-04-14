@@ -23,8 +23,11 @@
     }
 
     if ($filters['latitude'] && $filters['longitude']) {
-        $q = "SELECT * FROM locations WHERE latitude LIKE '{$filters['latitude']}%' AND longitude LIKE '{$filters['open-date-end']}%';";
-        // echo $q;
+        $latitude1 = $filters['latitude'] - 0.001;
+        $latitude2 = $filters['latitude'] + 0.001;
+        $longitude1 = $filters['longitude'] - 0.001;
+        $longitude2 = $filters['longitude'] + 0.001;
+        $q = "SELECT * FROM locations WHERE latitude >= '$latitude1' AND latitude <= '$latitude2' AND longitude >= '$longitude1' AND longitude <= '$longitude2';";
         $locations = $wpdb->get_results($q);
         echo json_encode($locations);
     }
@@ -35,9 +38,11 @@
         echo json_encode($obj);
     }
 
-    if ($filters['part']) {
+    if ($filters['part'] != null) {
         $offset = $filters['part']*1000;
-        $locations = $wpdb->get_results("SELECT * FROM locations LIMIT 1000 OFFSET {$offset};");
+        $q = "SELECT * FROM locations LIMIT 1000 OFFSET {$offset};";
+        $locations = $wpdb->get_results($q);
         echo json_encode($locations);
     }
 ?>
+ 
