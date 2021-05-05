@@ -12,7 +12,7 @@
     </script>
     <style>
         #map {
-            height: 90%;
+            height: 80%;
         }
 
         html, body {
@@ -48,10 +48,26 @@
         function addMarkers(data) {
             for (const index in data) {
                 let point = data[index];
+                const contentString = `
+                    <b>Name: </b>${point.station_name}
+                    <br>
+                    <b>City: </b>${point.city}
+                    <br>
+                    <b>State: </b>${point.state}
+                    <br>
+                    <b>Open date: </b>${point.open_date}
+                `;
+                const infowindow = new google.maps.InfoWindow({
+                    content: contentString,
+                });
+                
                 let marker = new google.maps.Marker({
                     position: new google.maps.LatLng(point.latitude, point.longitude),
                     title: point.id,
                     map: map
+                });
+                marker.addListener("click", () => {
+                    infowindow.open(map, marker);
                 });
                 markers.push(marker);
             }                
@@ -70,21 +86,25 @@
                 dataType: 'json',
                 success: function (data) {
                     console.log(data.count);
+                    $("#count").text(data.count);
                     for (let index = 0; index < data.count/1000; index++) {
                         let query = 'part=' + index;
-                        getData(query);
+                        getData(query, false);
                     }
                 },
             });
         }
 
-        function getData(query) {
+        function getData(query, set=true) {
             $.ajax({
                 type: 'GET',
                 url: '/index.php/data?' + query,
                 dataType: 'json',
                 success: function (data) {
                     addMarkers(data);
+                    if (set) {
+                        $("#count").text(data.length);
+                    }
                 }
             });
         }
@@ -92,22 +112,10 @@
         function filter() {
             setMarkers(null);
             markers = [];
-            let val = $("#criteria").val();
-            if (val === 'state') {
-                let query = 'state=' + $("#state").val() + '&city=' + $("#state-city").val();
-                getData(query);
-            }
-            else if (val === 'open-date') {
-                let query = 'open-date-start=' + $("#open-date-start").val() + '&open-date-end=' + $("#open-date-end").val();
-                getData(query);
-            }
-            else if (val === 'coordinates') {
-                let latitude = $("#coordinates-latitude").val();
-                let longitude = $("#coordinates-longitude").val();
-                let query = 'latitude=' + latitude + '&longitude=' + longitude;
-                console.log(query);
-                getData(query);
-            }
+            let query = 'state=' + $("#state").val() + '&city=' + $("#state-city").val() + 
+                        '&open-date-start=' + $("#open-date-start").val() + '&open-date-end=' + $("#open-date-end").val() + 
+                        '&latitude=' + $("#coordinates-latitude").val() + '&longitude=' + $("#coordinates-longitude").val();
+            getData(query);
         }
 
         function showAll() {
@@ -117,24 +125,6 @@
         }
 
         $(document).ready(function () {
-            $('#coordinates-div').hide();
-            $('#open-date-div').hide();
-
-            $("#criteria").change(function () {
-                let val = $(this).val();
-                $('#state-div').hide();
-                $('#open-date-div').hide();
-                $('#coordinates-div').hide();
-
-                if (val === "state") {
-                    $('#state-div').show();
-                } else if (val === "open-date") {
-                    $('#open-date-div').show();
-                } else if (val === "coordinates") {
-                    $('#coordinates-div').show();
-                }
-            });
-
             setTimeout(function() {
                 map = new google.maps.Map(document.getElementById('map'), {
                     center: {lat: 39.793487, lng: -99.242224},
@@ -145,13 +135,10 @@
         });
     </script>
     <div id="filter-buttons">
-        <select name="criteria" id="criteria">
-            <option value="state">State</option>
-            <option value="open-date">Open date</option>
-            <option value="coordinates">Coordinates</option>
-        </select>
+        State: 
         <div id="state-div">
             <select name="state" id="state">
+                <option value=""></option>
                 <option value="AL">Alabama</option>
                 <option value="AK">Alaska</option>
                 <option value="AZ">Arizona</option>
@@ -207,21 +194,26 @@
             <label for="state-city">City: </label>
             <input type="text" id="state-city">
         </div>
+        <br>
+        Open date: 
         <div id="open-date-div">
             <label for="open-date-start">From: </label>
             <input type="date" id="open-date-start">
             <label for="open-date-end">To: </label>
             <input type="date" id="open-date-end">
         </div>
+        <br>
         <div id="coordinates-div">
             <label for="coordinates-latitude">Latitude: </label>
             <input type="number" id="coordinates-latitude">
             <label for="coordinates-longitude">Longitude: </label>
             <input type="number" id="coordinates-longitude">
         </div>
+        <br>
         <button onclick="filter()">Filter</button>
     </div>
     <button class="btn" onclick="showAll()">Show All</button>
+    <span id="count">0</span>
     <div id="map"></div>
 </body>
 </html>

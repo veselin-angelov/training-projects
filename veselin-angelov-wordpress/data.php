@@ -10,37 +10,44 @@
         $filters[$filter[0]] = $filter[1];
     }
 
-    if ($filters['state']) {
-        $q = "SELECT * FROM locations WHERE state='{$filters['state']}' AND city LIKE '%{$filters['city']}%';";
-        $locations = $wpdb->get_results($q);
-        echo json_encode($locations);
-    }
-
-    if ($filters['open-date-start'] && $filters['open-date-end']) {
-        $q = "SELECT * FROM locations WHERE open_date BETWEEN '{$filters['open-date-start']}' AND '{$filters['open-date-end']}';";
-        $locations = $wpdb->get_results($q);
-        echo json_encode($locations);
-    }
-
-    if ($filters['latitude'] && $filters['longitude']) {
-        $latitude1 = $filters['latitude'] - 0.001;
-        $latitude2 = $filters['latitude'] + 0.001;
-        $longitude1 = $filters['longitude'] - 0.001;
-        $longitude2 = $filters['longitude'] + 0.001;
-        $q = "SELECT * FROM locations WHERE latitude >= '$latitude1' AND latitude <= '$latitude2' AND longitude >= '$longitude1' AND longitude <= '$longitude2';";
-        $locations = $wpdb->get_results($q);
-        echo json_encode($locations);
-    }
-
     if ($filters['count']) {
         $count = $wpdb->get_var("SELECT COUNT(*) FROM locations;");
         $obj->count = $count;
         echo json_encode($obj);
     }
 
-    if ($filters['part'] != null) {
+    else if ($filters['part'] != null) {
         $offset = $filters['part']*1000;
         $q = "SELECT * FROM locations LIMIT 1000 OFFSET {$offset};";
+        $locations = $wpdb->get_results($q);
+        echo json_encode($locations);
+    }
+    
+    else {
+        $q = "SELECT * FROM locations WHERE";
+
+        if ($filters['state']) {
+            $q .= " state='{$filters['state']}' AND";
+        }
+
+        if ($filters['city']) {
+            $q .= " city LIKE '%{$filters['city']}%' AND";
+        }
+
+        if ($filters['open-date-start'] && $filters['open-date-end']) {
+            $q .= " open_date BETWEEN '{$filters['open-date-start']}' AND '{$filters['open-date-end']}' AND";
+        }
+
+        if ($filters['latitude'] && $filters['longitude']) {
+            $latitude1 = $filters['latitude'] - 0.001;
+            $latitude2 = $filters['latitude'] + 0.001;
+            $longitude1 = $filters['longitude'] - 0.001;
+            $longitude2 = $filters['longitude'] + 0.001;
+            $q .= " latitude >= '$latitude1' AND latitude <= '$latitude2' AND longitude >= '$longitude1' AND longitude <= '$longitude2' AND";
+        }
+
+        $q = substr($q, 0, -4);
+        $q .= ";";
         $locations = $wpdb->get_results($q);
         echo json_encode($locations);
     }
