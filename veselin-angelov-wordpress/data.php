@@ -22,6 +22,12 @@
         $locations = $wpdb->get_results($q);
         echo json_encode($locations);
     }
+
+    else if ($filters['cities']) {
+        $q = "SELECT DISTINCT city FROM locations;";
+        $locations = $wpdb->get_results($q);
+        echo json_encode($locations);
+    }
     
     else {
         $q = "SELECT * FROM locations WHERE";
@@ -31,6 +37,7 @@
         }
 
         if ($filters['city']) {
+            $filters['city'] = str_replace("%20", " ", $filters['city']);
             $q .= " city LIKE '%{$filters['city']}%' AND";
         }
 

@@ -85,7 +85,6 @@
                 url: '/index.php/data?count=1',
                 dataType: 'json',
                 success: function (data) {
-                    console.log(data.count);
                     $("#count").text(data.count);
                     for (let index = 0; index < data.count/1000; index++) {
                         let query = 'part=' + index;
@@ -109,6 +108,19 @@
             });
         }
 
+        function getCities() {
+            $.ajax({
+                type: 'GET',
+                url: '/index.php/data?cities=1',
+                dataType: 'json',
+                success: function (data) {
+                    data.forEach((city) => {
+                        cities.push(city.city);
+                    })
+                }
+            });
+        }
+
         function filter() {
             setMarkers(null);
             markers = [];
@@ -124,14 +136,19 @@
             getCount();
         }
 
+        let cities = [];
+
         $(document).ready(function () {
             setTimeout(function() {
                 map = new google.maps.Map(document.getElementById('map'), {
                     center: {lat: 39.793487, lng: -99.242224},
                     zoom: 4.7
                 });
-                // getCount();
             }, 100);
+            getCities();
+            $( "#state-city" ).autocomplete({
+                source: cities
+            });
         });
     </script>
     <div id="filter-buttons">
