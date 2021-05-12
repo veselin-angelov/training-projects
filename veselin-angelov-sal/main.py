@@ -8,6 +8,10 @@ def raft():
     if len(goats_weight) != goats:
         return
 
+    for goat in goats_weight:
+        if goat <= 1 or goat >= 100000:
+            return
+
     goats_weight.sort(reverse=True)
     min_raft_size = goats_weight[0]
     max_raft_size = sum(goats_weight)
@@ -23,16 +27,9 @@ def raft():
 
         for i in range(courses):
             for goat in temp_goats_weight:
-                if sum(trips[i]) + goat > temp_raft_size:
-                    pass
-
-                else:
+                if sum(trips[i]) + goat <= temp_raft_size:
                     trips[i].append(goat)
-
-            for n, k in enumerate(temp_goats_weight):
-                if k in trips[i]:
-                    temp_goats_weight[n] = 0
-                    trips[i][trips[i].index(k)] = 0
+                    temp_goats_weight[temp_goats_weight.index(goat)] = 0
 
         if sum(temp_goats_weight) == 0:
             best_raft_size = temp_raft_size
