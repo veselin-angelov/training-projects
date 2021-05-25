@@ -28,3 +28,25 @@ def execute_query(connection, query, values=None):
         print(f"The error '{e}' occurred")
     except Error as e:
         print(f"The error '{e}' occurred")
+
+
+def fetchone(connection, query):
+    cursor = connection.cursor()
+    result = None
+    try:
+        cursor.execute(query)
+        result = cursor.fetchone()
+        return result
+    except OperationalError as e:
+        print(f"The error '{e}' occurred")
+
+
+def fetchall(connection, query):
+    cursor = connection.cursor()
+    result = None
+    try:
+        cursor.execute(query)
+        result = cursor.fetchall()
+        return result
+    except OperationalError as e:
+        print(f"The error '{e}' occurred")
