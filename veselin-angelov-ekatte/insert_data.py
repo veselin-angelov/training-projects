@@ -23,3 +23,7 @@ for i in range(1, len(settlements)):
     q = f'INSERT INTO settlements (ekatte, type, name, municipality_code) VALUES (%s, %s, %s, %s);'
     values = (str(settlements["ekatte"][i]), settlements["t_v_m"][i], settlements["name"][i], settlements["obstina"][i])
     execute_query(connection, q, values)
+
+# q = f'INSERT INTO areas (name, code) VALUES (%s, %s);'
+# values = ("aasd", "; SELECT * FROM areas;")
+# execute_query(connection, q, values)

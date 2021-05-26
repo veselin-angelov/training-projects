@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style>
+        table, th, td {
+            border: 1px solid black;
+            border-collapse: collapse;
+        }
+        table {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <form name="search" action="/" method="POST">
+        Search: <input type="text" name="search">
+        <input type="submit" value="Submit">
+    </form>
+
+    {% if data %}
+        <table style="width: 60%">
+            <tr>
+                <th>Ekatte</th>
+                <th>Settlement</th>
+                <th>Municipality</th>
+                <th>Area</th>
+            </tr>
+            {% for row in data %}
+                <tr>
+                    <td>{{ row[0] }}</td>
+                    <td>{{ row[1] + row[2] }}</td>
+                    <td>{{ row[3] }}</td>
+                    <td>{{ row[4] }}</td>
+                </tr>
+            {% endfor %}
+        </table>
+    {% endif %}
+
+    <table>
+        <tr>
+            <th>Areas</th>
+            <th>Municipalities</th>
+            <th>Settlements</th>
+        </tr>
+        <tr>
+            <td>{{ stats['areas'] }}</td>
+            <td>{{ stats['municipalities'] }}</td>
+            <td>{{ stats['settlements'] }}</td>
+        </tr>
+    </table>
+
+</body>
+</html>
