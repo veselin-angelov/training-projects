@@ -33,16 +33,16 @@
         $q = "SELECT * FROM locations WHERE";
 
         if ($filters['state']) {
-            $q .= " state='{$filters['state']}' AND";
+            $q .= " state=%s AND";
         }
 
         if ($filters['city']) {
             $filters['city'] = str_replace("%20", " ", $filters['city']);
-            $q .= " city LIKE '%{$filters['city']}%' AND";
+            $q .= " city LIKE '%%s%' AND";
         }
 
         if ($filters['open-date-start'] && $filters['open-date-end']) {
-            $q .= " open_date BETWEEN '{$filters['open-date-start']}' AND '{$filters['open-date-end']}' AND";
+            $q .= " open_date BETWEEN %s AND %s AND";
         }
 
         if ($filters['latitude'] && $filters['longitude']) {
@@ -50,12 +50,14 @@
             $latitude2 = $filters['latitude'] + 0.001;
             $longitude1 = $filters['longitude'] - 0.001;
             $longitude2 = $filters['longitude'] + 0.001;
-            $q .= " latitude >= '$latitude1' AND latitude <= '$latitude2' AND longitude >= '$longitude1' AND longitude <= '$longitude2' AND";
+            $q .= " latitude >= %f AND latitude <= %f AND longitude >= %s AND longitude <= %s AND";
         }
 
         $q = substr($q, 0, -4);
         $q .= ";";
-        $locations = $wpdb->get_results($q);
+        $locations = $wpdb->get_results(
+            $wpdb->prepare($q, array($filters['state'], $filters['city'], $filters['open-date-start'], $filters['open-date-end'], $latitude1, $latitude2, $longitude1, $longitude2))
+        );
         echo json_encode($locations);
     }
 ?>
