@@ -1,7 +1,41 @@
 const net = require('net');
 const fs = require('fs')
+const path = require("path");
 
 const CHUNK_SIZE = 100000;
+
+const responseStatuses = {
+    OK: {
+        status: 'OK',
+        code: 200,
+    },
+    NOT_FOUND: {
+        status: 'Not Found',
+        code: 404,
+    },
+    SERVER_ERROR: {
+        status: 'Internal server error',
+        code: 500,
+    }
+};
+
+const mimeTypes = {
+    '.html': 'text/html',
+    '.js': 'text/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.wav': 'audio/wav',
+    '.mp4': 'video/mp4',
+    '.woff': 'application/font-woff',
+    '.ttf': 'application/font-ttf',
+    '.eot': 'application/vnd.ms-fontobject',
+    '.otf': 'application/font-otf',
+    '.wasm': 'application/wasm'
+};
 
 function createWebServer(requestHandler) {
     const server = net.createServer();
@@ -40,6 +74,10 @@ function createWebServer(requestHandler) {
                 }
             }
 
+            const responseHeaders = {
+                server: 'my-custom-server'
+            };
+
             /* Request-related business */
             // Start parsing the header
             let reqHeaders;
@@ -70,21 +108,20 @@ function createWebServer(requestHandler) {
 
             /* Response-related business */
             // Initial values
-            let status = 200, statusText = 'OK', headersSent = false, isChunked = false;
-            const responseHeaders = {
-                server: 'my-custom-server'
-            };
+            let headersSent = false;
+            let isChunked = false;
+            let status = responseStatuses.OK;
+
             function setHeader(key, value) {
                 responseHeaders[key.toLowerCase()] = value;
             }
             function sendHeaders() {
-                // Only do this once :)
                 if (!headersSent) {
                     headersSent = true;
                     // Add the date header
                     setHeader('date', new Date().toGMTString());
                     // Send the status line
-                    socket.write(`HTTP/1.1 ${status} ${statusText}\r\n`);
+                    socket.write(`HTTP/1.1 ${status.code} ${status.status}\r\n`);
                     // Send each following header
                     Object.keys(responseHeaders).forEach(headerKey => {
                         socket.write(`${headerKey}: ${responseHeaders[headerKey]}\r\n`);
@@ -94,7 +131,12 @@ function createWebServer(requestHandler) {
                 }
             }
             const response = {
-                status,
+                socket,
+                sendHeaders,
+                setHeader,
+                setStatus(newStatus) {
+                    status = newStatus;
+                },
                 write(chunk) {
                     if (!headersSent) {
                         // If there's no content-length header, then specify Transfer-Encoding chunked
@@ -136,22 +178,6 @@ function createWebServer(requestHandler) {
                         socket.end(chunk);
                     }
                 },
-                setHeader,
-                setStatus(newStatus, newStatusText) {
-                    status = newStatus;
-                    statusText = newStatusText;
-                },
-                // Convenience method to send JSON through server
-                json(data) {
-                    if (headersSent) {
-                        throw new Error('Headers sent, cannot proceed to send JSON');
-                    }
-                    const json = new Buffer(data);
-                    setHeader('content-type', 'application/json; charset=utf-8');
-                    setHeader('content-length', json.length);
-                    sendHeaders();
-                    socket.end(json);
-                },
             };
 
             // Send the request to the handler!
@@ -165,23 +191,35 @@ function createWebServer(requestHandler) {
 }
 
 const webServer = createWebServer(async (req, res) => {
-    // This is the as our original code with the http module :)
-    console.log(`${new Date().toISOString()} - HTTP ${req.httpVersion} ${req.method} ${req.url} ${res.status}`);
-    // res.json(getData());
-    res.setHeader('content-type', 'application/json; charset=utf-8');
-    const stream = fs.createReadStream('./2gb.json', {highWaterMark: CHUNK_SIZE});
-    // for await(const data of stream) {
-    //     res.write(data);
-    // }
-    stream.on('data', function(chunk) {
-        const used = process.memoryUsage();
-        for (let key in used) {
-            console.log(`${key} ${Math.round(used[key] / 1024 / 1024 * 100) / 100} MB`);
-        }
-        res.write(chunk);
-    }).on('end', function() {
-        res.end();
-    });
+    console.log(`${new Date().toISOString()} - HTTP ${req.httpVersion} ${req.method} ${req.url}`);
+
+    let filePath = '.' + req.url;
+
+    if (filePath === './') {
+        filePath = './index.html';
+    }
+
+    let extname = String(path.extname(filePath)).toLowerCase();
+    res.setHeader('Content-Type', mimeTypes[extname] || 'application/octet-stream');
+
+    fs.createReadStream(filePath, {highWaterMark: CHUNK_SIZE})
+        .on('error', function (error) {
+            console.log(error.code);
+            if(error.code === 'ENOENT') {
+                res.setStatus(responseStatuses.NOT_FOUND);
+                res.end();
+            }
+            else {
+                res.setStatus(responseStatuses.SERVER_ERROR);
+                res.sendHeaders();
+                res.end();
+            }
+        })
+        .on('data', function (chunk) {
+            res.setStatus(responseStatuses.OK);
+            res.sendHeaders();
+        })
+        .pipe(res.socket)
 });
 
 webServer.listen(3000);
