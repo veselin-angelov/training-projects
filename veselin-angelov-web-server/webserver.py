@@ -4,7 +4,7 @@ import signal
 import socket
 import time
 
-SERVER_ADDRESS = (HOST, PORT) = '', 8888
+SERVER_ADDRESS = (HOST, PORT) = '', 8889
 REQUEST_QUEUE_SIZE = 1024
 
 
@@ -24,13 +24,25 @@ def grim_reaper(signum, frame):
 
 def handle_request(client_connection):
     request = client_connection.recv(1024)
-    print(request.decode())
-    http_response = b"""\
-HTTP/1.1 200 OK
+    # print(request.decode())
+    fin = open('file.json')
+    content = fin.read()
+    fin.close()
+    response_line = "HTTP/1.1 200 OK\r\n"
 
-Hello, World!
-"""
-    client_connection.sendall(http_response)
+    headers = "".join([
+        "Server: Test Server\r\n",
+        "Content-Type: application/json\r\n"
+    ])
+
+    blank_line = "\r\n"
+#     http_response = b"""\
+# HTTP/1.1 200 OK
+#
+# Hello, World!
+# """
+    resp = "".join([response_line, headers, blank_line, content])
+    client_connection.sendall(resp.encode())
     # time.sleep(60) concurrency test
 
 

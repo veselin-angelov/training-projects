@@ -1,6 +1,8 @@
 const net = require('net');
 const fs = require('fs')
 const path = require("path");
+const { spawn } = require('child_process');
+const { parseQuery } = require('./parsequery');
 
 const CHUNK_SIZE = 100000;
 
@@ -16,6 +18,10 @@ const responseStatuses = {
     SERVER_ERROR: {
         status: 'Internal server error',
         code: 500,
+    },
+    NOT_IMPLEMENTED: {
+        status: 'Not implemented',
+        code: 501,
     }
 };
 
@@ -80,13 +86,15 @@ function createWebServer(requestHandler) {
 
             /* Request-related business */
             // Start parsing the header
-            let reqHeaders;
-            if (reqHeader) {
-                reqHeaders = reqHeader.split('\r\n');
-            }
-            // First line is special
 
+            if (reqHeader === undefined) {
+                return;
+            }
+
+            let reqHeaders = reqHeader.split('\r\n');
             const reqLine = reqHeaders.shift().split(' ');
+            const reqUrl = reqLine[1].split('?');
+
             // Further lines are one header per line, build an object out of it.
             const headers = reqHeaders.reduce((acc, currentHeader) => {
                 const [key, value] = currentHeader.split(':');
@@ -99,7 +107,8 @@ function createWebServer(requestHandler) {
             // This object will be sent to the handleRequest callback.
             const request = {
                 method: reqLine[0],
-                url: reqLine[1],
+                url: reqUrl[0],
+                args: reqUrl[1],
                 httpVersion: reqLine[2].split('/')[1],
                 headers,
                 // The user of this web server can directly read from the socket to get the request body
@@ -200,26 +209,116 @@ const webServer = createWebServer(async (req, res) => {
     }
 
     let extname = String(path.extname(filePath)).toLowerCase();
-    res.setHeader('Content-Type', mimeTypes[extname] || 'application/octet-stream');
 
-    fs.createReadStream(filePath, {highWaterMark: CHUNK_SIZE})
-        .on('error', function (error) {
-            console.log(error.code);
-            if(error.code === 'ENOENT') {
-                res.setStatus(responseStatuses.NOT_FOUND);
-                res.end();
-            }
-            else {
+    if (req.method === 'GET') {
+        if (extname === '.php') {
+            fs.access(`./cgi/${filePath}`, fs.F_OK, (error) => {
+                if (error) {
+                    if (error.code === 'ENOENT') {
+                        res.setStatus(responseStatuses.NOT_FOUND);
+                        res.end();
+                    }
+                }
+            })
+
+            const commandArgs = ['-f', './cgi/mod_php.php', filePath, req.args, 'GET'];
+            let childProcess = spawn('php', commandArgs);
+
+            childProcess.stdout.on("data", data => {
+                res.setStatus(responseStatuses.OK);
+                res.setHeader('Content-type', mimeTypes['.html']);
+                res.sendHeaders();
+                res.end(data);
+            });
+
+            childProcess.stderr.on("data", data => {
                 res.setStatus(responseStatuses.SERVER_ERROR);
                 res.sendHeaders();
                 res.end();
+            });
+
+            childProcess.on('error', (error) => {
+                console.log(`error: ${error.message}`);
+            });
+
+            childProcess.on("close", code => {
+                if (code !== 0) {
+                    console.log(`child process exited with code ${code}`);
+                }
+            });
+        } else {
+            res.setHeader('Content-Type', mimeTypes[extname] || 'application/octet-stream');
+            fs.createReadStream(filePath, {highWaterMark: CHUNK_SIZE})
+                .on('error', function (error) {
+                    if (error.code === 'ENOENT') {
+                        res.setStatus(responseStatuses.NOT_FOUND);
+                        res.end();
+                    } else {
+                        res.setStatus(responseStatuses.SERVER_ERROR);
+                        res.end();
+                    }
+                })
+                .on('data', function (chunk) {
+                    res.setStatus(responseStatuses.OK);
+                    res.sendHeaders();
+                })
+                .pipe(res.socket);
+        }
+    }
+
+    if (req.method === 'POST') {
+        if (extname !== '.php') {
+            res.setStatus(responseStatuses.NOT_IMPLEMENTED);
+            res.end();
+        }
+
+        fs.access(`./cgi/${filePath}`, fs.F_OK, (error) => {
+            if (error) {
+                if (error.code === 'ENOENT') {
+                    res.setStatus(responseStatuses.NOT_FOUND);
+                    res.end();
+                }
             }
         })
-        .on('data', function (chunk) {
+
+        let reqBuffer = new Buffer('');
+        let buf;
+        while (true) {
+            // Read data from the socket
+            buf = req.socket.read();
+            // Stop if there's no more data
+            if (buf === null) break;
+
+            reqBuffer = Buffer.concat([reqBuffer, buf]);
+        }
+        let reqBody = JSON.parse(reqBuffer.toString());
+
+        const commandArgs = ['-f', './cgi/mod_php.php', filePath, JSON.stringify(reqBody), 'POST'];
+        let childProcess = spawn('php', commandArgs);
+
+        childProcess.stdout.on("data", data => {
             res.setStatus(responseStatuses.OK);
+            res.setHeader('Content-type', mimeTypes['.html']);
             res.sendHeaders();
-        })
-        .pipe(res.socket)
+            res.end(data);
+        });
+
+        childProcess.stderr.on("data", data => {
+            res.setStatus(responseStatuses.SERVER_ERROR);
+            res.sendHeaders();
+            res.end();
+        });
+
+        childProcess.on('error', (error) => {
+            console.log(`error: ${error.message}`);
+        });
+
+        childProcess.on("close", code => {
+            if (code !== 0) {
+                console.log(`child process exited with code ${code}`);
+            }
+        });
+    }
 });
 
 webServer.listen(3000);
