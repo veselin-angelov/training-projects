@@ -75,7 +75,9 @@ async function main() {
 
     context.beginPath();
     context.strokeStyle = '#ff0000';
-    for (let i = 0; i < input.n; i++) {
+    context.font = '10pt Menlo';
+    for (let i = 0; i <= input.n; i++) {
+        context.fillText(i.toString(), 100 * (i + 1) - 5, 90);
         if (segments.includes(i) && segments.includes(i + 1)) {
             colored++;
             context.moveTo(100 * (i + 1), 100);
