@@ -215,7 +215,7 @@ const webServer = createWebServer(async (req, res) => {
                 }
             })
 
-            const commandArgs = ['-f', './cgi/mod_php.php', filePath, req.args, 'GET'];
+            const commandArgs = ['-f', './cgi/mod_php.php', filePath, 'GET', req.args, 'undefined'];
 
             // if (phpProcesses < 10) {
             //     phpProcesses++;
@@ -301,13 +301,17 @@ const webServer = createWebServer(async (req, res) => {
         }
         let reqBody = JSON.parse(reqBuffer.toString());
 
-        const commandArgs = ['-f', './cgi/mod_php.php', filePath, JSON.stringify(reqBody), 'POST'];
-        let childProcess = spawn('php', commandArgs);
+        const commandArgs = ['-f', './cgi/mod_php.php', filePath, 'POST', req.args, JSON.stringify(reqBody)];
+        let childProcess = spawn('php', commandArgs, { timeout: 2000 });
+        let sent = false;
 
         childProcess.stdout.on('data', data => {
-            res.setStatus(responseStatuses.OK);
-            res.setHeader('Content-type', mimeTypes['.html']);
-            res.end(data);
+            if (!sent) {
+                res.setStatus(responseStatuses.OK);
+                res.setHeader('Content-type', mimeTypes['.html']);
+                res.sendHeaders();
+                sent = true;
+            }
         });
 
         childProcess.stderr.on('data', data => {
@@ -325,6 +329,8 @@ const webServer = createWebServer(async (req, res) => {
                 console.log(`child process exited with code ${code}`);
             }
         });
+
+        childProcess.stdout.pipe(res.socket);
     }
 });
 
