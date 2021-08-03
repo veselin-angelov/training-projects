@@ -4,6 +4,7 @@ const path = require("path");
 const { spawn } = require('child_process');
 
 const CHUNK_SIZE = 100000;
+const MAX_PROCESSES = 2;
 
 const responseStatuses = {
     OK: {
@@ -191,7 +192,128 @@ function createWebServer(requestHandler) {
     };
 }
 
-// let phpProcesses = 0;
+
+function servePhpFiles(commandArgs, res) {
+    let childProcess = spawn('php', commandArgs, {timeout: 2000}); // TODO timeout not working
+    let sent = false;
+
+    childProcess.stdout.on('data', data => {
+        if (!sent) {
+            res.setStatus(responseStatuses.OK);
+            res.setHeader('Content-type', mimeTypes['.html']);
+            res.sendHeaders();
+            sent = true;
+        }
+    });
+
+    childProcess.stderr.on('data', data => {
+        res.setStatus(responseStatuses.SERVER_ERROR);
+        res.end();
+    });
+
+    childProcess.on('error', error => {
+        res.setStatus(responseStatuses.SERVER_ERROR);
+        res.end();
+    });
+
+    childProcess.on('close', code => {
+        if (code !== 0) {
+            console.log(`child process exited with code ${code}`);
+        }
+        processCount--;
+    });
+
+    childProcess.stdout.pipe(res.socket);
+}
+
+
+let requestQueue = [];
+let processCount = 0;
+
+
+setInterval(function () {
+    console.log(processCount, requestQueue.length);
+    if (processCount < MAX_PROCESSES && requestQueue.length !== 0) {
+        processCount++;
+        let currentReq = requestQueue.shift();
+
+        let extname = String(path.extname(currentReq.filePath)).toLowerCase();
+
+        if (currentReq.req.method === 'GET') {
+            if (extname === '.php') {
+                fs.access(`./cgi/${currentReq.filePath}`, fs.F_OK, error => {
+                    if (error) {
+                        if (error.code === 'ENOENT') {
+                            currentReq.res.setStatus(responseStatuses.NOT_FOUND);
+                            currentReq.res.end();
+                            processCount--;
+                        }
+                    }
+                })
+
+                const commandArgs = ['-f', './cgi/mod_php.php', currentReq.filePath, 'GET', currentReq.req.args, 'undefined'];
+
+                servePhpFiles(commandArgs, currentReq.res);
+            }
+            else {
+                currentReq.res.setHeader('Content-Type', mimeTypes[extname] || 'application/octet-stream');
+                fs.createReadStream(currentReq.filePath, {highWaterMark: CHUNK_SIZE})
+                    .on('error', error => {
+                        if (error.code === 'ENOENT') {
+                            currentReq.res.setStatus(responseStatuses.NOT_FOUND);
+                            currentReq.res.end();
+                            processCount--;
+                        } else {
+                            currentReq.res.setStatus(responseStatuses.SERVER_ERROR);
+                            currentReq.res.end();
+                            processCount--;
+                        }
+                    })
+                    .on('ready', chunk => {
+                        currentReq.res.setStatus(responseStatuses.OK);
+                        currentReq.res.sendHeaders();
+                    })
+                    .on('close', data => {
+                        processCount--;
+                    })
+                    .pipe(currentReq.res.socket);
+            }
+        }
+
+        if (currentReq.req.method === 'POST') {
+            if (extname !== '.php') {
+                currentReq.res.setStatus(responseStatuses.NOT_IMPLEMENTED);
+                currentReq.res.end();
+                processCount--;
+            }
+
+            fs.access(`./cgi/${currentReq.filePath}`, fs.F_OK, error => {
+                if (error) {
+                    if (error.code === 'ENOENT') {
+                        currentReq.res.setStatus(responseStatuses.NOT_FOUND);
+                        currentReq.res.end();
+                        processCount--;
+                    }
+                }
+            })
+
+            let reqBuffer = new Buffer('');
+            let buf;
+            while (true) {
+                buf = currentReq.req.socket.read();
+                if (buf === null) break;
+
+                reqBuffer = Buffer.concat([reqBuffer, buf]);
+            }
+            let reqBody = JSON.parse(reqBuffer.toString());
+
+            const commandArgs = ['-f', './cgi/mod_php.php', currentReq.filePath, 'POST', currentReq.req.args, JSON.stringify(reqBody)];
+
+            servePhpFiles(commandArgs, currentReq.res);
+        }
+    }
+}, 100);
+
 
 const webServer = createWebServer(async (req, res) => {
     console.log(`${new Date().toISOString()} - HTTP ${req.httpVersion} ${req.method} ${req.url}`);
@@ -202,136 +324,7 @@ const webServer = createWebServer(async (req, res) => {
         filePath = './index.html';
     }
 
-    let extname = String(path.extname(filePath)).toLowerCase();
-
-    if (req.method === 'GET') {
-        if (extname === '.php') {
-            fs.access(`./cgi/${filePath}`, fs.F_OK, (error) => {
-                if (error) {
-                    if (error.code === 'ENOENT') {
-                        res.setStatus(responseStatuses.NOT_FOUND);
-                        res.end();
-                    }
-                }
-            })
-
-            const commandArgs = ['-f', './cgi/mod_php.php', filePath, 'GET', req.args, 'undefined'];
-
-            // if (phpProcesses < 10) {
-            //     phpProcesses++;
-
-            let childProcess = spawn('php', commandArgs, { timeout: 2000 }); // TODO timeout not working
-            let sent = false;
-
-            childProcess.stdout.on('data', data => {
-                if (!sent) {
-                    res.setStatus(responseStatuses.OK);
-                    res.setHeader('Content-type', mimeTypes['.html']);
-                    res.sendHeaders();
-                    sent = true;
-                }
-            });
-
-            childProcess.stderr.on('data', data => {
-                res.setStatus(responseStatuses.SERVER_ERROR);
-                res.end();
-            });
-
-            childProcess.on('error', (error) => {
-                res.setStatus(responseStatuses.SERVER_ERROR);
-                res.end();
-            });
-
-            childProcess.on('close', code => {
-                if (code !== 0) {
-                    console.log(`child process exited with code ${code}`);
-                }
-                // phpProcesses --;
-            });
-
-            childProcess.stdout.pipe(res.socket);
-
-            // }
-            // else {
-            //
-            // }
-
-        } else {
-            res.setHeader('Content-Type', mimeTypes[extname] || 'application/octet-stream');
-            fs.createReadStream(filePath, {highWaterMark: CHUNK_SIZE})
-                .on('error', function (error) {
-                    if (error.code === 'ENOENT') {
-                        res.setStatus(responseStatuses.NOT_FOUND);
-                        res.end();
-                    } else {
-                        res.setStatus(responseStatuses.SERVER_ERROR);
-                        res.end();
-                    }
-                })
-                .on('ready', function (chunk) {
-                    res.setStatus(responseStatuses.OK);
-                    res.sendHeaders();
-                })
-                .pipe(res.socket);
-        }
-    }
-
-    if (req.method === 'POST') {
-        if (extname !== '.php') {
-            res.setStatus(responseStatuses.NOT_IMPLEMENTED);
-            res.end();
-        }
-
-        fs.access(`./cgi/${filePath}`, fs.F_OK, (error) => {
-            if (error) {
-                if (error.code === 'ENOENT') {
-                    res.setStatus(responseStatuses.NOT_FOUND);
-                    res.end();
-                }
-            }
-        })
-
-        let reqBuffer = new Buffer('');
-        let buf;
-        while (true) {
-            buf = req.socket.read();
-            if (buf === null) break;
-
-            reqBuffer = Buffer.concat([reqBuffer, buf]);
-        }
-        let reqBody = JSON.parse(reqBuffer.toString());
-
-        const commandArgs = ['-f', './cgi/mod_php.php', filePath, 'POST', req.args, JSON.stringify(reqBody)];
-        let childProcess = spawn('php', commandArgs, { timeout: 2000 });
-        let sent = false;
-
-        childProcess.stdout.on('data', data => {
-            if (!sent) {
-                res.setStatus(responseStatuses.OK);
-                res.setHeader('Content-type', mimeTypes['.html']);
-                res.sendHeaders();
-                sent = true;
-            }
-        });
-
-        childProcess.stderr.on('data', data => {
-            res.setStatus(responseStatuses.SERVER_ERROR);
-            res.end();
-        });
-
-        childProcess.on('error', (error) => {
-            res.setStatus(responseStatuses.SERVER_ERROR);
-            res.end();
-        });
-
-        childProcess.on('close', code => {
-            if (code !== 0) {
-                console.log(`child process exited with code ${code}`);
-            }
-        });
-
-        childProcess.stdout.pipe(res.socket);
-    }
+    requestQueue.push({req, res, filePath});
 });
 
 webServer.listen(3000);
