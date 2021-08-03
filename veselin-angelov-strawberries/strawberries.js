@@ -1,0 +1,87 @@
+const readline = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+
+
+function question(theQuestion) {
+    return new Promise(resolve => readline.question(theQuestion, answer => resolve(parseInt(answer))));
+}
+
+
+async function getInput() {
+    let k = await question("K >"); // Y
+    let l = await question("L >"); // X
+    let r = await question("R >");
+
+    if (k < 0 || k > 1000 || l < 0 || l > 1000 || k > l || r < 0 || r > 100) {
+        readline.close();
+        return;
+    }
+
+    let strawberries = new Array(k).fill(1).map(() => new Array(l).fill(1));
+
+    for (let i = 0; i < 2; i++) {
+        let y = await question(`S${i} Y >`);
+        let x = await question(`S${i} X >`);
+        strawberries[k - y][x - 1] = 0;
+
+        if (i === 0) {
+            let stop = await question(`Stop (1/0) >`);
+            if (stop) {
+                break;
+            }
+        }
+    }
+    readline.close();
+
+    return {
+        k,
+        l,
+        r,
+        strawberries
+    }
+}
+
+
+async function main() {
+    const input = await getInput();
+
+    for (let i = 0; i < input.r; i++) {
+        let tempStrawberries = input.strawberries.map(e => [...e]);
+        for (let y = 0; y < input.k; y++) {
+            for (let x = 0; x < input.l; x++) {
+                if (input.strawberries[y][x] === 0) {
+                    if (y - 1 >= 0) {
+                        tempStrawberries[y - 1][x] = 0;
+                    }
+                    if (y + 1 < input.k) {
+                        tempStrawberries[y + 1][x] = 0;
+                    }
+                    if (x - 1 >= 0) {
+                        tempStrawberries[y][x - 1] = 0;
+                    }
+                    if (x + 1 < input.l) {
+                        tempStrawberries[y][x + 1] = 0;
+                    }
+                }
+            }
+        }
+        input.strawberries = tempStrawberries.map(e => [...e]);
+    }
+
+    console.log(input.strawberries);
+
+    let count = 0;
+    input.strawberries.forEach((row) => {
+        row.forEach((number) => {
+            if (number === 1) {
+                count++;
+            }
+        });
+    });
+
+    console.log(count);
+}
+
+main();
