@@ -11,7 +11,7 @@
         fclose($handle);
     }
 
-    readTheFile("./files/100mb.json");
+//     readTheFile("./files/100mb.json");
 
     if (isset($_GET['a']) && isset($_GET['b']) && is_numeric($_GET['a']) && is_numeric($_GET['b'])) {
         echo $_GET['a'] + $_GET['b'];

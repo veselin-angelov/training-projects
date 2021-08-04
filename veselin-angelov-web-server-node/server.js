@@ -4,7 +4,7 @@ const path = require("path");
 const { spawn } = require('child_process');
 
 const CHUNK_SIZE = 100000;
-const MAX_PROCESSES = 2;
+const MAX_PROCESSES = 10;
 
 const responseStatuses = {
     OK: {
@@ -193,27 +193,39 @@ function createWebServer(requestHandler) {
 }
 
 
-function servePhpFiles(commandArgs, res) {
-    let childProcess = spawn('php', commandArgs, {timeout: 2000}); // TODO timeout not working
+function servePhpFiles(currentReq) {
+    let childProcess = spawn('php', ['./cgi/mod_php.php']);
+
+    childProcess.stdin.write(`${currentReq.filePath}\n`);
+    childProcess.stdin.write(`${currentReq.req.method}\n`);
+    childProcess.stdin.write(`${currentReq.req.args}\n`);
+    if (currentReq.req.method === 'POST') {
+        childProcess.stdin.write(`${JSON.stringify(currentReq.reqBody)}\n`);
+    }
+    else {
+        childProcess.stdin.write('undefined\n');
+    }
+    childProcess.stdin.write('END\n');
+
     let sent = false;
 
     childProcess.stdout.on('data', data => {
         if (!sent) {
-            res.setStatus(responseStatuses.OK);
-            res.setHeader('Content-type', mimeTypes['.html']);
-            res.sendHeaders();
+            currentReq.res.setStatus(responseStatuses.OK);
+            currentReq.res.setHeader('Content-type', mimeTypes['.html']);
+            currentReq.res.sendHeaders();
             sent = true;
         }
     });
 
     childProcess.stderr.on('data', data => {
-        res.setStatus(responseStatuses.SERVER_ERROR);
-        res.end();
+        currentReq.res.setStatus(responseStatuses.SERVER_ERROR);
+        currentReq.res.end();
     });
 
     childProcess.on('error', error => {
-        res.setStatus(responseStatuses.SERVER_ERROR);
-        res.end();
+        currentReq.res.setStatus(responseStatuses.SERVER_ERROR);
+        currentReq.res.end();
     });
 
     childProcess.on('close', code => {
@@ -223,7 +235,7 @@ function servePhpFiles(commandArgs, res) {
         processCount--;
     });
 
-    childProcess.stdout.pipe(res.socket);
+    childProcess.stdout.pipe(currentReq.res.socket);
 }
 
 
@@ -232,7 +244,7 @@ let processCount = 0;
 
 
 setInterval(function () {
-    console.log(processCount, requestQueue.length);
+    // console.log(processCount, requestQueue.length);
     if (processCount < MAX_PROCESSES && requestQueue.length !== 0) {
         processCount++;
         let currentReq = requestQueue.shift();
@@ -251,9 +263,7 @@ setInterval(function () {
                     }
                 })
 
-                const commandArgs = ['-f', './cgi/mod_php.php', currentReq.filePath, 'GET', currentReq.req.args, 'undefined'];
-
-                servePhpFiles(commandArgs, currentReq.res);
+                servePhpFiles(currentReq);
             }
             else {
                 currentReq.res.setHeader('Content-Type', mimeTypes[extname] || 'application/octet-stream');
@@ -305,14 +315,13 @@ setInterval(function () {
 
                 reqBuffer = Buffer.concat([reqBuffer, buf]);
             }
-            let reqBody = JSON.parse(reqBuffer.toString());
 
-            const commandArgs = ['-f', './cgi/mod_php.php', currentReq.filePath, 'POST', currentReq.req.args, JSON.stringify(reqBody)];
+            currentReq.reqBody = JSON.parse(reqBuffer.toString());
 
-            servePhpFiles(commandArgs, currentReq.res);
+            servePhpFiles(currentReq);
         }
     }
-}, 100);
+}, 1);
 
 
 const webServer = createWebServer(async (req, res) => {
