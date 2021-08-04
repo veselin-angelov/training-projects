@@ -3,6 +3,9 @@ const readline = require('readline').createInterface({
     output: process.stdout
 });
 
+const fs = require("fs");
+const { createCanvas } = require('canvas');
+
 
 function question(theQuestion) {
     return new Promise(resolve => readline.question(theQuestion, answer => resolve(parseInt(answer))));
@@ -47,6 +50,25 @@ async function getInput() {
 async function main() {
     const input = await getInput();
 
+    const canvas = createCanvas(input.l * 100 + 100, input.k * 100 + 100);
+    const context = canvas.getContext('2d');
+
+    context.fillStyle = '#aaa';
+    context.strokeStyle = '#000';
+    context.fillRect(0, 0, input.l * 100 + 100, input.k * 100 + 100);
+
+    for (let y = 0; y < input.k; y++) {
+        for (let x = 0; x < input.l; x++) {
+            if (input.strawberries[y][x] === 0) {
+                context.fillStyle = '#1a186a';
+                context.beginPath();
+                context.arc(100 * (x + 1),100 * (y + 1),10,0,Math.PI*2, false);
+                context.fill();
+                context.closePath();
+            }
+        }
+    }
+
     for (let i = 0; i < input.r; i++) {
         let tempStrawberries = input.strawberries.map(e => [...e]);
         for (let y = 0; y < input.k; y++) {
@@ -82,6 +104,33 @@ async function main() {
     });
 
     console.log(count);
+
+    for (let y = 0; y < input.k; y++) {
+        for (let x = 0; x < input.l; x++) {
+            if (input.strawberries[y][x] === 0) {
+                context.fillStyle = '#ff0000';
+                context.beginPath();
+                context.arc(100 * (x + 1),100 * (y + 1),5,0,Math.PI*2, false);
+                context.fill();
+                context.closePath();
+            }
+            else {
+                context.fillStyle = '#00ff04';
+                context.beginPath();
+                context.arc(100 * (x + 1),100 * (y + 1),5,0,Math.PI*2, false);
+                context.fill();
+                context.closePath();
+            }
+        }
+    }
+
+
+    context.fillStyle = '#791717';
+    context.font = '10pt Menlo';
+    context.fillText(`Height: ${input.k}, Width: ${input.l}, Days: ${input.r}, Good strawberries: ${count}`, 90, 50);
+
+    const buffer = canvas.toBuffer('image/png');
+    fs.writeFileSync('./test.png', buffer);
 }
 
 main();
