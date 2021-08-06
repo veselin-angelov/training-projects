@@ -193,49 +193,86 @@ function createWebServer(requestHandler) {
 }
 
 
-function servePhpFiles(currentReq) {
-    let childProcess = spawn('php', ['./cgi/mod_php.php']);
+let phpProcesses = [];
 
-    childProcess.stdin.write(`${currentReq.filePath}\n`);
-    childProcess.stdin.write(`${currentReq.req.method}\n`);
-    childProcess.stdin.write(`${currentReq.req.args}\n`);
-    if (currentReq.req.method === 'POST') {
-        childProcess.stdin.write(`${JSON.stringify(currentReq.reqBody)}\n`);
-    }
-    else {
-        childProcess.stdin.write('undefined\n');
-    }
-    childProcess.stdin.write('END\n');
+for (let i = 0; i < MAX_PROCESSES; i++) {
+    phpProcesses.push({
+        process: spawn('php', ['./cgi/mod_php.php']),
+        request: null,
+    });
+}
 
+
+phpProcesses.forEach(p => {
     let sent = false;
-
-    childProcess.stdout.on('data', data => {
+    p.process.stdout.on('data', data => {
+        // console.log('2', p.request.res.socket.remoteAddress, p.request.res.socket.remotePort, p.request.id);
         if (!sent) {
-            currentReq.res.setStatus(responseStatuses.OK);
-            currentReq.res.setHeader('Content-type', mimeTypes['.html']);
-            currentReq.res.sendHeaders();
+            p.request.res.setStatus(responseStatuses.OK);
+            p.request.res.setHeader('Content-type', mimeTypes['.html']);
+            p.request.res.sendHeaders();
             sent = true;
         }
     });
 
-    childProcess.stderr.on('data', data => {
-        currentReq.res.setStatus(responseStatuses.SERVER_ERROR);
-        currentReq.res.end();
+    p.process.stdout.on('readable', () => {
+        // console.log('r', p.request.id);
+        let line;
+        while (line = p.process.stdout.read()) {
+            // console.log(line.toString());
+            // console.log('3', p.request.res.socket.remoteAddress, p.request.res.socket.remotePort, p.request.id);
+            if (line.toString().endsWith('END\n')) {
+                line = line.toString().split('END\n')[0];
+                p.request.res.socket.write(line);
+                p.request.res.socket.end();
+                processCount--;
+                sent = false;
+                p.request = null;
+                phpProcesses.push(p);
+            } else {
+                p.request.res.socket.write(line);
+            }
+        }
     });
 
-    childProcess.on('error', error => {
-        currentReq.res.setStatus(responseStatuses.SERVER_ERROR);
-        currentReq.res.end();
+    p.process.stderr.on('data', data => {
+        console.log(data.toString());
+        p.request.res.setStatus(responseStatuses.SERVER_ERROR);
+        p.request.res.end();
     });
 
-    childProcess.on('close', code => {
+    p.process.on('error', error => {
+        console.log(error.toString());
+        p.request.res.setStatus(responseStatuses.SERVER_ERROR);
+        p.request.res.end();
+    });
+
+    p.process.on('close', code => {
         if (code !== 0) {
             console.log(`child process exited with code ${code}`);
         }
-        processCount--;
     });
+});
 
-    childProcess.stdout.pipe(currentReq.res.socket);
+
+function servePhpFiles(currentReq1) {
+    let p = phpProcesses.shift();
+    p.request = currentReq1;
+
+    try {
+        p.process.stdin.write(`${p.request.filePath}\n`);
+        p.process.stdin.write(`${p.request.req.method}\n`);
+        p.process.stdin.write(`${p.request.req.args}\n`);
+        if (p.request.req.method === 'POST') {
+            p.process.stdin.write(`${JSON.stringify(p.request.reqBody)}\n`);
+        } else {
+            p.process.stdin.write('undefined\n');
+        }
+        p.process.stdin.write('END\n');
+    }
+    catch (e) {
+        console.log(e.toString());
+    }
 }
 
 
@@ -247,78 +284,75 @@ setInterval(function () {
     // console.log(processCount, requestQueue.length);
     if (processCount < MAX_PROCESSES && requestQueue.length !== 0) {
         processCount++;
-        let currentReq = requestQueue.shift();
+        try {
+            let currentReq = requestQueue.shift();
 
-        let extname = String(path.extname(currentReq.filePath)).toLowerCase();
+            currentReq.filePath = '.' + currentReq.req.url;
 
-        if (currentReq.req.method === 'GET') {
-            if (extname === '.php') {
+            if (currentReq.filePath === './') {
+                currentReq.filePath = './index.html';
+            }
+
+            let extname = String(path.extname(currentReq.filePath)).toLowerCase();
+
+            if (currentReq.req.method === 'GET') {
                 fs.access(`./cgi/${currentReq.filePath}`, fs.F_OK, error => {
                     if (error) {
-                        if (error.code === 'ENOENT') {
-                            currentReq.res.setStatus(responseStatuses.NOT_FOUND);
-                            currentReq.res.end();
-                            processCount--;
-                        }
+                        currentReq.res.setHeader('Content-Type', mimeTypes[extname] || 'application/octet-stream');
+                        fs.createReadStream(currentReq.filePath, {highWaterMark: CHUNK_SIZE})
+                            .on('error', error => {
+                                if (error.code === 'ENOENT') {
+                                    currentReq.res.setStatus(responseStatuses.NOT_FOUND);
+                                    currentReq.res.end();
+                                    processCount--;
+                                } else {
+                                    currentReq.res.setStatus(responseStatuses.SERVER_ERROR);
+                                    currentReq.res.end();
+                                    processCount--;
+                                }
+                            })
+                            .on('ready', chunk => {
+                                currentReq.res.setStatus(responseStatuses.OK);
+                                currentReq.res.sendHeaders();
+                            })
+                            .on('close', data => {
+                                processCount--;
+                            })
+                            .pipe(currentReq.res.socket);
+                    }
+                    else {
+                        servePhpFiles(currentReq);
                     }
                 })
-
-                servePhpFiles(currentReq);
-            }
-            else {
-                currentReq.res.setHeader('Content-Type', mimeTypes[extname] || 'application/octet-stream');
-                fs.createReadStream(currentReq.filePath, {highWaterMark: CHUNK_SIZE})
-                    .on('error', error => {
-                        if (error.code === 'ENOENT') {
-                            currentReq.res.setStatus(responseStatuses.NOT_FOUND);
-                            currentReq.res.end();
-                            processCount--;
-                        } else {
-                            currentReq.res.setStatus(responseStatuses.SERVER_ERROR);
-                            currentReq.res.end();
-                            processCount--;
-                        }
-                    })
-                    .on('ready', chunk => {
-                        currentReq.res.setStatus(responseStatuses.OK);
-                        currentReq.res.sendHeaders();
-                    })
-                    .on('close', data => {
-                        processCount--;
-                    })
-                    .pipe(currentReq.res.socket);
-            }
-        }
-
-        if (currentReq.req.method === 'POST') {
-            if (extname !== '.php') {
-                currentReq.res.setStatus(responseStatuses.NOT_IMPLEMENTED);
-                currentReq.res.end();
-                processCount--;
             }
 
-            fs.access(`./cgi/${currentReq.filePath}`, fs.F_OK, error => {
-                if (error) {
-                    if (error.code === 'ENOENT') {
-                        currentReq.res.setStatus(responseStatuses.NOT_FOUND);
+            if (currentReq.req.method === 'POST') {
+                fs.access(`./cgi/${currentReq.filePath}`, fs.F_OK, error => {
+                    if (error) {
+                        currentReq.res.setStatus(responseStatuses.NOT_IMPLEMENTED);
                         currentReq.res.end();
                         processCount--;
                     }
-                }
-            })
+                    else {
+                        let reqBuffer = new Buffer('');
+                        let buf;
+                        while (true) {
+                            buf = currentReq.req.socket.read();
+                            if (buf === null) break;
 
-            let reqBuffer = new Buffer('');
-            let buf;
-            while (true) {
-                buf = currentReq.req.socket.read();
-                if (buf === null) break;
+                            reqBuffer = Buffer.concat([reqBuffer, buf]);
+                        }
 
-                reqBuffer = Buffer.concat([reqBuffer, buf]);
+                        currentReq.reqBody = JSON.parse(reqBuffer.toString());
+
+                        servePhpFiles(currentReq);
+                    }
+                })
             }
-
-            currentReq.reqBody = JSON.parse(reqBuffer.toString());
-
-            servePhpFiles(currentReq);
+        }
+        catch (e) {
+            console.log(e.toString());
+            processCount--;
         }
     }
 }, 1);
@@ -327,13 +361,9 @@ setInterval(function () {
 const webServer = createWebServer(async (req, res) => {
     console.log(`${new Date().toISOString()} - HTTP ${req.httpVersion} ${req.method} ${req.url}`);
 
-    let filePath = '.' + req.url;
+    // console.log(res.socket.remoteAddress, res.socket.remotePort);
 
-    if (filePath === './') {
-        filePath = './index.html';
-    }
-
-    requestQueue.push({req, res, filePath});
+    requestQueue.push({req, res});
 });
 
 webServer.listen(3000);

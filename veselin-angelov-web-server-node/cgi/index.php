@@ -1,17 +1,11 @@
 <?php
-    echo 'Hello, World!';
-
-    function readTheFile($path) {
-        $handle = fopen($path, "r");
-
-        while(!feof($handle)) {
-            echo trim(fgets($handle));
-        }
-
-        fclose($handle);
+    if (!function_exists('readTheFile')){
+        include "read_file.php";
     }
 
-//     readTheFile("./files/100mb.json");
+//     echo 'Hello, World!';
+
+    readTheFile("./files/100mb.json");
 
     if (isset($_GET['a']) && isset($_GET['b']) && is_numeric($_GET['a']) && is_numeric($_GET['b'])) {
         echo $_GET['a'] + $_GET['b'];
