@@ -1,56 +1,131 @@
+#!/usr/bin/python3
+import datetime
 import errno
+import json
 import os
-import signal
 import socket
-import time
+from subprocess import Popen, PIPE
+from utilities import Status, read_in_chunks
 
 SERVER_ADDRESS = (HOST, PORT) = '', 8889
 REQUEST_QUEUE_SIZE = 1
 
 
-def handle_request(client_connection):
-    data = client_connection.recv(1024)
-    print(data)
+mime_types = {
+    '.html': 'text/html',
+    '.js': 'text/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.wav': 'audio/wav',
+    '.mp4': 'video/mp4',
+    '.woff': 'application/font-woff',
+    '.ttf': 'application/font-ttf',
+    '.eot': 'application/vnd.ms-fontobject',
+    '.otf': 'application/font-otf',
+    '.wasm': 'application/wasm'
+}
 
-    marker = data.index(b'\r\n\r\n')
 
-    print(marker)
+def make_response_headers(status, path=None):
+    response_line = f"HTTP/1.1 {status.value[0]} {status.value[1]}\r\n"
 
-    request_headers = data[:marker]
+    headers = "Server: Test Server\r\n"
 
-    print(request_headers)
+    if path:
+        filename, file_extension = os.path.splitext(path)
+        headers += f"Content-Type: {mime_types[file_extension] if file_extension in mime_types.keys() else 'application/octet-stream'}\r\n"
 
-    request_headers_list = request_headers.split(b'\r\n')
+    blank_line = "\r\n"
+    response_headers = "".join([response_line, headers, blank_line])
 
-    print(request_headers_list)
+    return response_headers
 
-    request_lines = []
 
-    for header in request_headers_list:
-        request_lines.append(header.split(b' '))
+def handle_response(request, client_connection):
+    try:
+        if os.path.isfile(f"./cgi-bin{request['url']}"):
+            pass
 
-    print(request_lines)
+        else:
+            fin = open(f'.{request["url"]}')
+
+    except IOError as e:
+        response_headers = make_response_headers(status=Status.NOT_FOUND)
+        client_connection.sendall(response_headers.encode())
+        client_connection.close()
+        print(e)
+        return
 
     try:
-        fin = open('./files/1kb.json')
-        content = fin.read()
-        fin.close()
+        if os.path.isfile(f"./cgi-bin{request['url']}"):
+            response_headers = make_response_headers(status=Status.OK, path='a.html')
+            client_connection.sendall(response_headers.encode())
 
-        response_line = "HTTP/1.1 200 OK\r\n"
+            process = Popen(['./cgi-bin/mod_python.py'], stdout=PIPE, stdin=PIPE, stderr=PIPE)
 
-        headers = "".join([
-            "Server: Test Server\r\n",
-            "Content-Type: application/json\r\n"
-        ])
+            # TUKA
+            process.communicate(input=json.dumps(request).encode())
 
-        blank_line = "\r\n"
-        resp = "".join([response_line, headers, blank_line, content])
-        client_connection.sendall(resp.encode())
-        client_connection.close()
+            if process.communicate()[1]:
+                print('stderr: ', process.communicate()[1])
+
+            client_connection.sendall(process.communicate()[0])
+            client_connection.close()
+
+        else:
+            response_headers = make_response_headers(status=Status.OK, path=request['url'])
+            client_connection.sendall(response_headers.encode())
+
+            for chunk in read_in_chunks(fin):
+                client_connection.sendall(chunk.encode())
+
+            fin.close()
+            client_connection.close()
 
     except Exception as e:
+        response_headers = make_response_headers(status=Status.INTERNAL_SERVER_ERROR)
+        client_connection.sendall(response_headers.encode())
+        client_connection.close()
         print(e)
-    # time.sleep(60) concurrency test
+        return
+
+
+def handle_request(client_connection):
+    data = client_connection.recv(1024)
+
+    headers_end = data.index(b'\r\n\r\n')
+    request_headers = data[:headers_end]
+    request_headers_list = request_headers.split(b'\r\n')
+    request_headers_lines = []
+
+    for request_line in request_headers_list:
+        request_headers_lines.append(request_line.decode().split(' '))
+
+    request_url = request_headers_lines[0][1].split('?')
+
+    headers = {}
+
+    for index, header in enumerate(request_headers_lines):
+        if index == 0:
+            continue
+
+        headers[header[0]] = header[1]
+
+    request = {
+        "method": request_headers_lines[0][0],
+        "url": request_url[0],
+        "args": request_url[1] if len(request_url) > 1 else None,
+        "http_version": request_headers_lines[0][2].split('/')[1],
+        "headers": headers,
+    }
+
+    print(f"{datetime.datetime.now().isoformat()} - HTTP {request['http_version']} {request['method']} {request['url']}")
+
+    handle_response(request, client_connection)
 
 
 def serve_forever():
@@ -72,7 +147,11 @@ def serve_forever():
             else:
                 raise
 
-        handle_request(client_connection)
+        try:
+            handle_request(client_connection)
+
+        except Exception as e:
+            print(e)
 
     listen_socket.close()
 

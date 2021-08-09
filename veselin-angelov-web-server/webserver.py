@@ -25,7 +25,7 @@ def grim_reaper(signum, frame):
 def handle_request(client_connection):
     request = client_connection.recv(1024)
     # print(request.decode())
-    fin = open('file.json')
+    fin = open('/files/1kb.json')
     content = fin.read()
     fin.close()
     response_line = "HTTP/1.1 200 OK\r\n"
@@ -72,6 +72,7 @@ def serve_forever():
             handle_request(client_connection)
             client_connection.close()
             os._exit(0)
+
         else:  # parent
             client_connection.close()  # close parent copy and loop over
 
