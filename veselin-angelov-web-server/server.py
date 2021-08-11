@@ -50,8 +50,11 @@ def handle_response(request, client_connection):
         if os.path.isfile(f"./cgi-bin{request['url']}"):
             pass
 
+        elif os.path.isfile(f".{request['url']}"):
+            pass
+
         else:
-            fin = open(f'.{request["url"]}')
+            raise IOError
 
     except IOError as e:
         response_headers = make_response_headers(status=Status.NOT_FOUND)
@@ -76,15 +79,20 @@ def handle_response(request, client_connection):
             client_connection.sendall(process.communicate()[0])
             client_connection.close()
 
-        else:
+        elif os.path.isfile(f".{request['url']}"):
+            fin = open(f'.{request["url"]}', 'rb')
+
             response_headers = make_response_headers(status=Status.OK, path=request['url'])
             client_connection.sendall(response_headers.encode())
 
             for chunk in read_in_chunks(fin):
-                client_connection.sendall(chunk.encode())
+                client_connection.sendall(chunk)
 
             fin.close()
             client_connection.close()
+
+        else:
+            raise IOError
 
     except Exception as e:
         response_headers = make_response_headers(status=Status.INTERNAL_SERVER_ERROR)
@@ -113,7 +121,7 @@ def handle_request(client_connection):
         if index == 0:
             continue
 
-        headers[header[0]] = header[1]
+        headers[header[0][:-1]] = header[1]
 
     request = {
         "method": request_headers_lines[0][0],

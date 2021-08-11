@@ -5,7 +5,7 @@ import sys
 
 
 cgitb.enable()
-cgi.test()
+# cgi.test()
 
 try:
     data = cgi.FieldStorage()

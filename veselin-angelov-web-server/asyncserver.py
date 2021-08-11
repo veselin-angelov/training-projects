@@ -9,11 +9,13 @@ import time
 from subprocess import Popen, PIPE
 
 # import aiofiles
-from concurrent.futures import ThreadPoolExecutor
+# from concurrent.futures import ThreadPoolExecutor
 
 from utilities import Status, read_in_chunks
 
-executor = ThreadPoolExecutor()
+# executor = ThreadPoolExecutor()
+
+CHUNK_SIZE = 10000
 
 mime_types = {
     '.html': 'text/html',
@@ -34,22 +36,15 @@ mime_types = {
 }
 
 
-# def read_file(filename, writer):
-#     with open(filename, 'rb') as f:
+# def stream_file(filename, sock, writer):
+#     # sock.setblocking(1)
+#
+#     with open(f'.{filename}', 'rb') as f:
 #         for chunk in read_in_chunks(f, chunk_size=4096):
-#             writer.write(chunk)
+#             sock.sendall(chunk)
 #
-#
-# def on_file_streaming_finished(future_file):
-#     try:
-#         print(future_file.result())
-#         # await writer.drain()
-#         #
-#         # writer.close()
-#         # await writer.wait_closed()
-#
-#     except Exception as e:
-#         print(e)
+#     sock.close()
+#     writer.close()
 
 
 def make_response_headers(status, path=None):
@@ -98,6 +93,19 @@ async def handle_response(request, writer):
 
             process = Popen(['./cgi-bin/mod_python.py'], stdout=PIPE, stdin=PIPE, stderr=PIPE)
 
+            response_headers_dict = {
+                'CONTENT_TYPE': mime_types['.html'],
+                'DATE_GMT': datetime.datetime.now(datetime.timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT'),
+                'DATE_LOCAL': datetime.datetime.now().strftime('%a, %d %b %Y %H:%M:%S'),
+                'SERVER_SOFTWARE': 'Na Vesko server-a/alpha v1.0',
+                'REMOTE_ADDR': writer.get_extra_info(name='socket').getpeername()[0],
+                'SERVER_ROOT': os.getcwd(),
+                'PATH_TRANSLATED': os.path.dirname(os.path.abspath(__file__)),
+                'DOCUMENT_ROOT': os.path.dirname(os.path.abspath(__file__)) + '/cgi-bin/'
+            }
+
+            request['response_headers'] = response_headers_dict
+
             process.communicate(input=json.dumps(request).encode())
 
             if process.communicate()[1]:
@@ -109,10 +117,32 @@ async def handle_response(request, writer):
             writer.close()
             await writer.wait_closed()
 
-        else:
+        elif os.path.isfile(f".{request['url']}"):
             response_headers = make_response_headers(status=Status.OK, path=request['url'])
             writer.write(response_headers.encode())
             await writer.drain()
+
+            # loop = asyncio.get_running_loop()
+
+            # fin = open(f'.{request["url"]}', 'rb')
+            # await loop.sendfile(fin)
+
+            # sock = writer.get_extra_info(name='socket')
+            # with ThreadPoolExecutor() as pool:
+            #     result = await loop.run_in_executor(
+            #         pool, stream_file, request.get('url'), sock, writer)
+            #
+            #     print('default thread pool', result)
+
+            with open(f'.{request["url"]}', 'rb') as fin:
+                contents = fin.read(CHUNK_SIZE)
+                while contents:
+                    writer.write(contents)
+                    contents = fin.read(CHUNK_SIZE)
+                await writer.drain()
+
+            writer.close()
+            await writer.wait_closed()
 
             # fin = open(f'.{request["url"]}', 'rb')
             # os.set_blocking(fin.fileno(), False)
@@ -143,8 +173,8 @@ async def handle_response(request, writer):
             # writer.close()
             # await writer.wait_closed()
 
-            # writer.close()
-            # await writer.wait_closed()
+        else:
+            raise IOError
 
     except Exception as e:
         response_headers = make_response_headers(status=Status.INTERNAL_SERVER_ERROR)
@@ -176,10 +206,7 @@ async def handle_request(reader, writer):
             if index == 0:
                 continue
 
-            headers[header[0]] = header[1]
-
-        # global x
-        # x += 1
+            headers[header[0][:-1]] = header[1]
 
         request = {
             "method": request_headers_lines[0][0],
@@ -187,13 +214,11 @@ async def handle_request(reader, writer):
             "args": request_url[1] if len(request_url) > 1 else None,
             "http_version": request_headers_lines[0][2].split('/')[1],
             "headers": headers,
-            # "id": x,
         }
 
-        print(
-            f"{datetime.datetime.now().isoformat()} - HTTP {request['http_version']} {request['method']} {request['url']}")
+        print(f"{datetime.datetime.now().isoformat()} - HTTP {request['http_version']} "
+              f"{request['method']} {request['url']}")
 
-        # print(request)
         await handle_response(request, writer)
 
     except Exception as e:
