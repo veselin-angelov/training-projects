@@ -1,3 +1,4 @@
+import codecs
 import os
 from enum import Enum
 from time import sleep
@@ -6,14 +7,6 @@ from time import sleep
 class DataType(Enum):
     INT = int
     TEXT = str
-
-
-class WrongAmountOfValuesError(TypeError):
-    pass
-
-
-class TypesNotMatchError(TypeError):
-    pass
 
 
 class LockFile:
@@ -45,3 +38,22 @@ class LockFile:
             LockFile.unlock(file)
             # print(f'Cannot unlock "{file}". File is not locked!')
             # raise
+
+
+def encode_line(values: list, meta_length: int):
+
+    values_len = []
+
+    for value in values:
+        value_encoded = value.encode()
+        value_hex = codecs.encode(value_encoded, 'hex')
+
+        value_len = len(value_hex)
+        value_len_decimals = len(str(value_len))
+
+        blank_space = meta_length - value_len_decimals
+
+        values_len.append(f'{value_len}{" " * blank_space}')
+
+    data = f'{"".join(values_len)} + {" ".join(values)}'
+    return codecs.encode(data.encode(), 'hex')
