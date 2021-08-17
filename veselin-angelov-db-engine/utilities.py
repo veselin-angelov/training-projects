@@ -1,7 +1,12 @@
 import codecs
+import io
 import os
 from enum import Enum
 from time import sleep
+
+
+MAX_META_CHARS = 6
+DELETED_CHARS = 3
 
 
 class DataType(Enum):
@@ -40,20 +45,94 @@ class LockFile:
             # raise
 
 
-def encode_line(values: list, meta_length: int):
+class VeskoReaderWriter:
 
-    values_len = []
+    @staticmethod
+    def encode_line(values: list, meta_length: int):
 
-    for value in values:
-        value_encoded = value.encode()
-        value_hex = codecs.encode(value_encoded, 'hex')
+        values_len = []
 
-        value_len = len(value_hex)
-        value_len_decimals = len(str(value_len))
+        meta_data_size = len(values) * meta_length * 2 + DELETED_CHARS * 2
+        blank_space = MAX_META_CHARS - len(str(meta_data_size))
+        data = f'{meta_data_size}{" " * blank_space}'
 
-        blank_space = meta_length - value_len_decimals
+        for value in values:
+            value_encoded = value.encode()
+            value_hex = codecs.encode(value_encoded, 'hex')
 
-        values_len.append(f'{value_len}{" " * blank_space}')
+            value_len = len(value_hex)
+            value_len_decimals = len(str(value_len))
 
-    data = f'{"".join(values_len)} + {" ".join(values)}'
-    return codecs.encode(data.encode(), 'hex')
+            blank_space = meta_length - value_len_decimals
+
+            values_len.append(f'{value_len}{" " * blank_space}')
+
+        data += f'{"".join(values_len)} + {"".join(values)}'
+        return codecs.encode(data.encode(), 'hex')
+
+    @staticmethod
+    def read_file(f, meta_length: int):
+        while True:
+            position = f.tell()
+            meta_size = f.read(MAX_META_CHARS * 2)
+            meta_size = codecs.decode(meta_size, 'hex')
+
+            if meta_size == b'':
+                break
+
+            meta = f.read(int(meta_size))
+            meta_readable = codecs.decode(meta, 'hex')
+            deleted = meta_readable[-3:]
+
+            data_len = []
+            for start in range(0, len(meta_readable) - 3, meta_length):
+                data_len.append(int(meta_readable[start:start + meta_length]))
+
+            if deleted == b' + ':
+                data = f.read(sum(data_len))
+                yield data, data_len, position, int(meta_size)
+
+            else:
+                f.seek(sum(data_len), io.SEEK_CUR)
+
+    @staticmethod
+    def read_table_file(f, meta_length: int, line_numbers=False):
+
+        for row in VeskoReaderWriter.read_file(f, meta_length):
+            result = []
+            data = codecs.decode(row[0], 'hex')
+            prev = 0
+
+            for column_size in row[1]:
+                index = int(column_size / 2)
+                value = data[prev:prev + index].decode()
+                result.append(value)
+                prev += index
+
+            yield result, row[2], row[3]
+
+    @staticmethod
+    def read_meta_file(f, meta_length: int):
+        tables = dict()
+
+        for row in VeskoReaderWriter.read_file(f, meta_length):
+            data = codecs.decode(row[0], 'hex')
+            prev = 0
+            table_name = ''
+            for count, column_size in enumerate(row[1]):
+                if count % 2 != 0 or prev == 0:
+                    index = int(column_size / 2)
+                    name = data[prev:prev + index].decode()
+                    prev += index
+
+                    if prev - index == 0:
+                        table_name = name
+                        tables[table_name] = {}
+
+                    else:
+                        index1 = int(row[1][count + 1] / 2)
+                        value = data[prev:prev + index1].decode()
+                        tables[table_name][name] = getattr(DataType, value)
+                        prev += index1
+
+        return tables
