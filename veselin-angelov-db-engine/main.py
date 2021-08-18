@@ -10,6 +10,7 @@ from utilities import DataType, LockFile, VeskoReaderWriter, MAX_META_CHARS, DEL
 class DbEngine:
     DEFAULT_DB_DIR = '/home/veselin/Documents/databases/'
     META_DATA_LENGTH = 15
+    CHUNK_SIZE = 10000
     db_directory = ''
     db_name = ''
     db_meta_file_dir = ''
@@ -39,8 +40,15 @@ class DbEngine:
         self.db_directory = f'{self.DEFAULT_DB_DIR}{self.db_name}'
         self.db_meta_file_dir = f'{self.db_directory}/{self.db_name}.bin'
         LockFile.lock(self.db_meta_file_dir)
-        self.db_meta_file = open(self.db_meta_file_dir, 'rb+')
-        self.db_table_data = VeskoReaderWriter.read_meta_file(self.db_meta_file, self.META_DATA_LENGTH)
+
+        try:
+            self.db_meta_file = open(self.db_meta_file_dir, 'rb+')
+            self.db_table_data = VeskoReaderWriter.read_meta_file(self.db_meta_file, self.META_DATA_LENGTH)
+
+        except Exception:
+            LockFile.unlock(self.db_meta_file_dir)
+            raise
+
         LockFile.unlock(self.db_meta_file_dir)
 
         print(f'Using database {name}')
@@ -58,20 +66,25 @@ class DbEngine:
 
         LockFile.lock(self.db_meta_file_dir)
 
-        data_row = [name]
-        for key, value in data.items():
-            data_row.append(key)
-            data_row.append(value.name)
+        try:
+            data_row = [name]
+            for key, value in data.items():
+                data_row.append(key)
+                data_row.append(value.name)
 
-        line = VeskoReaderWriter.encode_line(data_row, self.META_DATA_LENGTH)
+            line = VeskoReaderWriter.encode_line(data_row, self.META_DATA_LENGTH)
 
-        self.db_meta_file.seek(0, io.SEEK_END)
-        self.db_meta_file.write(line)
+            self.db_meta_file.seek(0, io.SEEK_END)
+            self.db_meta_file.write(line)
 
-        print(f'Created table {name}!')
+            print(f'Created table {name}!')
 
-        self.db_meta_file.seek(0)
-        self.db_table_data = VeskoReaderWriter.read_meta_file(self.db_meta_file, self.META_DATA_LENGTH)
+            self.db_meta_file.seek(0)
+            self.db_table_data = VeskoReaderWriter.read_meta_file(self.db_meta_file, self.META_DATA_LENGTH)
+
+        except Exception:
+            LockFile.unlock(self.db_meta_file_dir)
+            raise
 
         LockFile.unlock(self.db_meta_file_dir)
 
@@ -87,21 +100,38 @@ class DbEngine:
 
         for column_name in table_data:
             assert column_name in values, f'Value for {column_name} is missing!'
-            assert isinstance(values[column_name], table_data[column_name].value), \
+            assert isinstance(values[column_name], table_data[column_name][0].value), \
                 f'Received {type(values[column_name])}, expected {table_data[column_name].value}!'
 
             insert_data.append(str(values[column_name]))
 
-        encoded_line = VeskoReaderWriter.encode_line(insert_data, self.META_DATA_LENGTH)
+        encoded_meta = VeskoReaderWriter.encode_meta(insert_data, self.META_DATA_LENGTH)
 
         with open(f'{self.db_directory}/table_{table_name}.bin', 'ab') as file:
             if lock:
                 LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
-                file.write(encoded_line)
+
+                try:
+                    file.write(encoded_meta)
+                    while True:
+                        for value in insert_data:
+                            if len(value) > self.CHUNK_SIZE:
+                                # TODO write in chunks
+                                pass
+
+                            else:
+                                file.write(codecs.encode(value.encode(), 'hex'))
+
+                except Exception:
+                    LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
+                    raise
+
                 LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
             else:
-                file.write(encoded_line)
+                # TODO try-catch ?
+                # TODO write in chunks
+                file.write(encoded_meta)
 
         print('Inserted a row!')
 
@@ -112,22 +142,30 @@ class DbEngine:
             c_key = key
             c_value = str(value)
 
+        column_number = self.db_table_data[table_name][c_key][1]
+
         with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
             LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
 
-            for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH):
-                row_data = row[0]
-                row_dict = self.db_table_data[table_name].copy()
+            try:
+                for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH, column_number):
+                    if row[0].decode() == c_value:
+                        file.seek(row[1] + row[2] + MAX_META_CHARS * 2, io.SEEK_SET)
+                        raw_data = file.read(sum(row[3]))
+                        data = codecs.decode(raw_data, 'hex')
+                        list_data = VeskoReaderWriter.raw_data_to_list(row[3], data)
 
-                for index, value in enumerate(row_dict):
-                    row_dict[value] = self.db_table_data[table_name][value].value(row_data[index])
+                        if line_numbers:
+                            yield row[1], row[2]
 
-                if row_dict[c_key] == c_value:
-                    if line_numbers:
-                        yield row[1], row[2]
+                        else:
+                            yield list_data
 
-                    else:
-                        yield row_dict
+                        break
+
+            except Exception:
+                LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
+                raise
 
             LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
@@ -138,8 +176,15 @@ class DbEngine:
         if not criteria:
             with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
                 LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
-                for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH):
-                    yield row[0]
+
+                try:
+                    for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH):
+                        yield row[0]
+
+                except Exception:
+                    LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
+                    raise
+
                 LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
         else:
@@ -164,7 +209,8 @@ class DbEngine:
 
         for row in self._search(table_name, criteria):
             for key, value in values.items():
-                row[key] = self.db_table_data[table_name][key].value(value)
+                # row[key] = self.db_table_data[table_name][key].value(value)
+                pass
 
             self.insert(table_name, row, False)
             print('Updated 1 row!')
@@ -175,7 +221,7 @@ def test():
     try:
         engine = DbEngine()
 
-        engine.create_db('test1')
+        # engine.create_db('test1')
         engine.use_db('test1')
 
         users = {
@@ -184,14 +230,14 @@ def test():
             'password': DataType.TEXT,
         }
 
-        engine.create_table('users', users)
+        # engine.create_table('users', users)
 
         cars = {
             'car_id': DataType.INT,
             'model': DataType.TEXT,
         }
 
-        engine.create_table('cars', cars)
+        # engine.create_table('cars', cars)
         # print(engine.db_table_data)
 
         tickets = {
@@ -201,7 +247,7 @@ def test():
             'price': DataType.INT,
         }
 
-        engine.create_table('tickets', tickets)
+        # engine.create_table('tickets', tickets)
         # print(engine.db_table_data)
 
         # *[1, 'vesko', 'vesko']
@@ -268,10 +314,10 @@ def test_select():
     engine.use_db('test1')
 
     criteria = {
-        'user_id': 1,
+        'user_id': 2,
     }
 
-    for res in engine.select('users'):
+    for res in engine.select('users', criteria):
         print(res)
 
     # for row in engine.select('users'):
@@ -280,6 +326,15 @@ def test_select():
     # print(engine.select('users', criteria))
     # for row in engine.select('users', criteria):
     #     print(row)
+
+
+def test_select_all():
+    engine = DbEngine()
+
+    engine.use_db('test1')
+
+    for res in engine.select('users'):
+        print(res)
 
 
 def test_delete():
@@ -312,10 +367,17 @@ def test_update():
 
 
 if __name__ == '__main__':
-    # test()
+    test()
     # test_delete()
-    test_update()
-    test_select()
+    # test_update()
+    # test_select()
+    test_select_all()
+
+    # engine = DbEngine()
+    #
+    # engine.use_db('test1')
+    #
+    # print(engine.db_table_data)
 
     # with open(f'/home/veselin/Documents/databases/test1/table_users.bin', 'rb') as file:
     #     data = file.read()
