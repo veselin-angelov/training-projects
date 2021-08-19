@@ -6,6 +6,7 @@ from time import sleep
 
 
 MAX_META_CHARS = 6
+MAX_POINTER_CHARS = 20
 DELETED_CHARS = 3
 
 
@@ -48,7 +49,7 @@ class LockFile:
 class VeskoReaderWriter:
 
     @staticmethod
-    def encode_meta(values: list, meta_length: int):
+    def encode_line(values: list, meta_length: int):
 
         values_len = []
 
@@ -57,9 +58,6 @@ class VeskoReaderWriter:
         data = f'{meta_data_size}{" " * blank_space}'
 
         for value in values:
-            # value_encoded = value.encode()
-            # value_hex = codecs.encode(value_encoded, 'hex')
-
             value_len = len(value) * 2  # HEX len is twice the normal
             value_len_decimals = len(str(value_len))
 
@@ -67,11 +65,9 @@ class VeskoReaderWriter:
 
             values_len.append(f'{value_len}{" " * blank_space}')
 
-        data += f'{"".join(values_len)}'
-        return codecs.encode(data.encode(), 'hex')
-
-        # data += f'{"".join(values_len)} + {"".join(values)}'
-        # return codecs.encode(data.encode(), 'hex')
+        data += f'{"".join(values_len)} + {"".join(values)}'
+        data = data.encode()
+        return codecs.encode(data, 'hex')
 
     @staticmethod
     def raw_data_to_list(data_len: list, data: b''):
@@ -87,9 +83,13 @@ class VeskoReaderWriter:
         return result
 
     @staticmethod
-    def read_file(f, meta_length: int, column_number: int = None):
+    def read_file(f, meta_length: int, column_number: int = None, read_table: bool = False):
         while True:
             position = f.tell()
+
+            if read_table and position == VeskoReaderWriter.read_pointer_info(f):
+                break
+
             meta_size = f.read(MAX_META_CHARS * 2)
             meta_size = codecs.decode(meta_size, 'hex')
 
@@ -124,7 +124,7 @@ class VeskoReaderWriter:
     @staticmethod
     def read_table_file(f, meta_length: int, column_number: int = None):
 
-        for row in VeskoReaderWriter.read_file(f, meta_length, column_number):
+        for row in VeskoReaderWriter.read_file(f, meta_length, column_number, True):
             data = codecs.decode(row[0], 'hex')
 
             if column_number is not None:
@@ -160,3 +160,22 @@ class VeskoReaderWriter:
                         position += 1
 
         return tables
+
+    @staticmethod
+    def read_pointer_info(f):
+        pos = f.tell()
+        f.seek(0)
+        data = f.read(MAX_POINTER_CHARS * 2)
+        data = codecs.decode(data, 'hex')
+        f.seek(pos)
+
+        return int(data)
+
+    @staticmethod
+    def write_pointer_info(f, position: int):
+        blank_space = MAX_POINTER_CHARS - len(str(position))
+        data = f'{position}{" " * blank_space}'
+        data = data.encode()
+
+        f.seek(0)
+        f.write(codecs.encode(data, 'hex'))

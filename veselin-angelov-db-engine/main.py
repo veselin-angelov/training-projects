@@ -1,10 +1,8 @@
 import codecs
-import csv
 import io
-import itertools
 import os
 
-from utilities import DataType, LockFile, VeskoReaderWriter, MAX_META_CHARS, DELETED_CHARS
+from utilities import DataType, LockFile, VeskoReaderWriter, MAX_META_CHARS, DELETED_CHARS, MAX_POINTER_CHARS
 
 
 class DbEngine:
@@ -60,6 +58,11 @@ class DbEngine:
         try:
             open(f'{self.db_directory}/table_{name}.bin', 'x')
 
+            LockFile.lock(f'{self.db_directory}/table_{name}.bin')
+            table = open(f'{self.db_directory}/table_{name}.bin', 'wb')
+            VeskoReaderWriter.write_pointer_info(table, MAX_POINTER_CHARS * 2)
+            LockFile.unlock(f'{self.db_directory}/table_{name}.bin')
+
         except FileExistsError:
             print(f'Cannot create table "{name}". Already exists!')
             raise
@@ -105,37 +108,34 @@ class DbEngine:
 
             insert_data.append(str(values[column_name]))
 
-        encoded_meta = VeskoReaderWriter.encode_meta(insert_data, self.META_DATA_LENGTH)
+        encoded_line = VeskoReaderWriter.encode_line(insert_data, self.META_DATA_LENGTH)
 
-        with open(f'{self.db_directory}/table_{table_name}.bin', 'ab') as file:
+        with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
+            file.seek(VeskoReaderWriter.read_pointer_info(file))
+
             if lock:
                 LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
 
                 try:
-                    file.write(encoded_meta)
-                    while True:
-                        for value in insert_data:
-                            if len(value) > self.CHUNK_SIZE:
-                                # TODO write in chunks
-                                pass
-
-                            else:
-                                file.write(codecs.encode(value.encode(), 'hex'))
+                    print('writing')
+                    file.write(encoded_line)
+                    VeskoReaderWriter.write_pointer_info(file, file.tell())
+                    print('end')
 
                 except Exception:
                     LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
                     raise
 
                 LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
+                print('Inserted a row!')
+                return
 
             else:
-                # TODO try-catch ?
-                # TODO write in chunks
-                file.write(encoded_meta)
+                file.write(encoded_line)
+                print('Inserted a row!')
+                return file.tell()
 
-        print('Inserted a row!')
-
-    def _search(self, table_name: str, criteria: dict, line_numbers=False):
+    def _search(self, table_name: str, criteria: dict, line_numbers=False, lock: bool = True):
         c_key = ''
         c_value = ''
         for key, value in criteria.items():
@@ -145,15 +145,20 @@ class DbEngine:
         column_number = self.db_table_data[table_name][c_key][1]
 
         with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
-            LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
+            if lock:
+                LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
+
+            file.seek(MAX_POINTER_CHARS * 2)
 
             try:
                 for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH, column_number):
                     if row[0].decode() == c_value:
+                        pos = file.tell()
                         file.seek(row[1] + row[2] + MAX_META_CHARS * 2, io.SEEK_SET)
                         raw_data = file.read(sum(row[3]))
                         data = codecs.decode(raw_data, 'hex')
                         list_data = VeskoReaderWriter.raw_data_to_list(row[3], data)
+                        file.seek(pos)
 
                         if line_numbers:
                             yield row[1], row[2]
@@ -161,13 +166,12 @@ class DbEngine:
                         else:
                             yield list_data
 
-                        break
-
             except Exception:
                 LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
                 raise
 
-            LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
+            if lock:
+                LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
     def select(self, table_name: str, criteria=None):
         assert table_name is not None, 'Argument "table_name" is required!'
@@ -176,6 +180,7 @@ class DbEngine:
         if not criteria:
             with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
                 LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
+                file.seek(MAX_POINTER_CHARS * 2)
 
                 try:
                     for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH):
@@ -191,16 +196,17 @@ class DbEngine:
             for row in self._search(table_name, criteria):
                 yield row
 
-    def delete(self, table_name: str, criteria: dict):
+    def delete(self, table_name: str, criteria: dict, lock: bool = True):
         assert table_name is not None, 'Argument "table_name" is required!'
         assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
 
         with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
-            for line in self._search(table_name, criteria, line_numbers=True):
+            for line in self._search(table_name, criteria, True, lock):
                 file.seek(line[0] + line[1] + MAX_META_CHARS * 2 - DELETED_CHARS * 2 + 2)
                 file.write(codecs.encode('-'.encode(), 'hex'))
 
                 print('Deleted 1 row!')
+                return True
 
     def update(self, table_name: str, criteria: dict, values: dict):
         assert table_name is not None, 'Argument "table_name" is required!'
@@ -208,13 +214,21 @@ class DbEngine:
         assert values is not None, 'Argument "values" is required!'
 
         for row in self._search(table_name, criteria):
-            for key, value in values.items():
-                # row[key] = self.db_table_data[table_name][key].value(value)
-                pass
+            row_dict = self.db_table_data[table_name].copy()
 
-            self.insert(table_name, row, False)
-            print('Updated 1 row!')
-        self.delete(table_name, criteria)
+            for index, value in enumerate(row_dict):
+                row_dict[value] = self.db_table_data[table_name][value][0].value(row[index])
+
+            for key, value in values.items():
+                row_dict[key] = self.db_table_data[table_name][key][0].value(value)
+
+            position = self.insert(table_name, row_dict, False)
+
+            if position:
+                if self.delete(table_name, criteria, False):
+                    with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
+                        VeskoReaderWriter.write_pointer_info(file, position)
+                    print('Updated 1 row!')
 
 
 def test():
