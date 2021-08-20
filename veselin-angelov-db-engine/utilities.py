@@ -7,6 +7,8 @@ from time import sleep
 
 MAX_META_CHARS = 6
 MAX_POINTER_CHARS = 20
+MAX_ID_CHARS = 10
+MAX_POSITION_CHARS = 12
 DELETED_CHARS = 3
 
 
@@ -179,3 +181,28 @@ class VeskoReaderWriter:
 
         f.seek(0)
         f.write(codecs.encode(data, 'hex'))
+
+    @staticmethod
+    def read_index_file(f):
+        id = f.read(MAX_ID_CHARS * 2)
+        position = f.read(MAX_POSITION_CHARS * 2)
+
+        return int(codecs.decode(id, 'hex')), int(codecs.decode(position, 'hex'))
+
+    @staticmethod
+    def read_from_given_offset(f, offset: int, meta_length: int):
+        f.seek(offset)
+        meta_size = f.read(MAX_META_CHARS * 2)
+        meta_size = codecs.decode(meta_size, 'hex')
+
+        meta = f.read(int(meta_size))
+        meta_readable = codecs.decode(meta, 'hex')
+        deleted = meta_readable[-3:]
+
+        data_len = []
+        for start in range(0, len(meta_readable) - 3, meta_length):
+            data_len.append(int(meta_readable[start:start + meta_length]))
+
+        if deleted == b' + ':
+            data = f.read(sum(data_len))
+            return VeskoReaderWriter.raw_data_to_list(data_len, codecs.decode(data, 'hex'))

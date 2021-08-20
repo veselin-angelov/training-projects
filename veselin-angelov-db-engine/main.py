@@ -1,8 +1,11 @@
 import codecs
 import io
 import os
+import time
+from time import sleep
 
-from utilities import DataType, LockFile, VeskoReaderWriter, MAX_META_CHARS, DELETED_CHARS, MAX_POINTER_CHARS
+from utilities import DataType, LockFile, VeskoReaderWriter, MAX_META_CHARS, DELETED_CHARS, MAX_POINTER_CHARS, \
+    MAX_ID_CHARS, MAX_POSITION_CHARS
 
 
 class DbEngine:
@@ -117,10 +120,10 @@ class DbEngine:
                 LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
 
                 try:
-                    print('writing')
+                    # print('writing')
                     file.write(encoded_line)
                     VeskoReaderWriter.write_pointer_info(file, file.tell())
-                    print('end')
+                    # print('end')
 
                 except Exception:
                     LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
@@ -153,21 +156,21 @@ class DbEngine:
             try:
                 for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH, column_number):
                     if row[0].decode() == c_value:
-                        pos = file.tell()
-                        file.seek(row[1] + row[2] + MAX_META_CHARS * 2, io.SEEK_SET)
-                        raw_data = file.read(sum(row[3]))
-                        data = codecs.decode(raw_data, 'hex')
-                        list_data = VeskoReaderWriter.raw_data_to_list(row[3], data)
-                        file.seek(pos)
-
                         if line_numbers:
                             yield row[1], row[2]
 
                         else:
+                            pos = file.tell()
+                            file.seek(row[1] + row[2] + MAX_META_CHARS * 2, io.SEEK_SET)
+                            raw_data = file.read(sum(row[3]))
+                            data = codecs.decode(raw_data, 'hex')
+                            list_data = VeskoReaderWriter.raw_data_to_list(row[3], data)
+                            file.seek(pos)
+
                             yield list_data
 
             except Exception:
-                LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
+                LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
                 raise
 
             if lock:
@@ -187,14 +190,33 @@ class DbEngine:
                         yield row[0]
 
                 except Exception:
-                    LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
+                    LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
                     raise
 
                 LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
         else:
-            for row in self._search(table_name, criteria):
-                yield row
+            c_key = ''
+            for key, value in criteria.items():
+                c_key = key
+
+            if os.path.isfile(f'{self.db_directory}/index_{c_key}_{table_name}.bin'):
+                offset = self.search_in_index(table_name, criteria)
+                with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
+                    LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
+
+                    try:
+                        print(VeskoReaderWriter.read_from_given_offset(file, offset, self.META_DATA_LENGTH))
+
+                    except Exception:
+                        LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
+                        raise
+
+                    LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
+
+            else:
+                for row in self._search(table_name, criteria):
+                    yield row
 
     def delete(self, table_name: str, criteria: dict, lock: bool = True):
         assert table_name is not None, 'Argument "table_name" is required!'
@@ -229,6 +251,77 @@ class DbEngine:
                     with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
                         VeskoReaderWriter.write_pointer_info(file, position)
                     print('Updated 1 row!')
+
+    def create_index(self, table_name: str, criteria: str):
+        assert table_name is not None, 'Argument "table_name" is required!'
+        assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
+        assert criteria is not None, 'Argument "criteria" is required!'
+
+        column_number = self.db_table_data[table_name][criteria][1]
+
+        try:
+            open(f'{self.db_directory}/index_{criteria}_{table_name}.bin', 'x')
+
+        except FileExistsError:
+            print(f'Cannot create {criteria} index on table "{table_name}". Already exists!')
+            raise
+
+        with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as table:
+            table.seek(MAX_POINTER_CHARS * 2)
+            index_seq = open(f'{self.db_directory}/index_{criteria}_{table_name}.bin', 'ab')
+
+            for row in VeskoReaderWriter.read_table_file(table, self.META_DATA_LENGTH, column_number):
+                row_data = row[0].decode()
+                position = row[1]
+
+                blank_space_id = MAX_ID_CHARS - len(str(row_data))
+                blank_space_position = MAX_POSITION_CHARS - len(str(position))
+                data = f'{row_data}{" " * blank_space_id}{position}{" " * blank_space_position}'
+
+                index_seq.write(codecs.encode(data.encode(), 'hex'))
+
+        print('Created index!')
+
+    def search_in_index(self, index_name: str, criteria: dict):
+        assert index_name is not None, 'Argument "index_name" is required!'
+
+        c_key = ''
+        c_value = ''
+        for key, value in criteria.items():
+            c_key = key
+            c_value = value
+
+        try:
+            with open(f'{self.db_directory}/index_{c_key}_{index_name}.bin', 'rb') as index_seq:
+                start = 0
+                end = os.stat(f'{self.db_directory}/index_{c_key}_{index_name}.bin').st_size
+                middle = start + (end - start) // 2
+
+                while True:
+                    remainder = middle % (MAX_ID_CHARS * 2 + MAX_POSITION_CHARS * 2)
+
+                    if remainder != 0:
+                        middle -= remainder
+
+                    index_seq.seek(middle)
+
+                    data = VeskoReaderWriter.read_index_file(index_seq)
+
+                    if data[0] == c_value:
+                        # print(data)
+                        return data[1]
+
+                    elif c_value > data[0]:
+                        start = middle
+
+                    else:
+                        end = middle
+
+                    middle = start + (end - start) // 2
+
+        except FileNotFoundError:
+            print(f'Index "{c_key}" on "{index_name}" does not exist!')
+            raise
 
 
 def test():
@@ -381,17 +474,28 @@ def test_update():
 
 
 if __name__ == '__main__':
-    test()
+    pass
+    # test()
     # test_delete()
     # test_update()
     # test_select()
-    test_select_all()
+    # test_select_all()
 
     # engine = DbEngine()
     #
-    # engine.use_db('test1')
+    # engine.use_db('test-db2')
     #
-    # print(engine.db_table_data)
+    # # engine.create_index('table', 'id')
+    #
+    # criteria = {
+    #     'name': 'Leon'
+    # }
+    #
+    # engine.select('table')
+
+    # s = time.time()
+    # engine.read_index('table', 10000)
+    # print(time.time() - s)
 
     # with open(f'/home/veselin/Documents/databases/test1/table_users.bin', 'rb') as file:
     #     data = file.read()
