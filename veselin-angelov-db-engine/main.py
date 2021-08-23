@@ -5,13 +5,14 @@ import time
 from time import sleep
 
 from utilities import DataType, LockFile, VeskoReaderWriter, MAX_META_CHARS, DELETED_CHARS, MAX_POINTER_CHARS, \
-    MAX_ID_CHARS, MAX_POSITION_CHARS
+    MAX_CRITERIA_CHARS, MAX_POSITION_CHARS
 
 
 class DbEngine:
     DEFAULT_DB_DIR = '/home/veselin/Documents/databases/'
     META_DATA_LENGTH = 15
     CHUNK_SIZE = 10000
+    MAX_ROWS_IN_MEMORY = 5000000
     db_directory = ''
     db_name = ''
     db_meta_file_dir = ''
@@ -201,12 +202,12 @@ class DbEngine:
                 c_key = key
 
             if os.path.isfile(f'{self.db_directory}/index_{c_key}_{table_name}.bin'):
-                offset = self.search_in_index(table_name, criteria)
                 with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
                     LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
 
                     try:
-                        print(VeskoReaderWriter.read_from_given_offset(file, offset, self.META_DATA_LENGTH))
+                        for offset in self.search_in_index(table_name, criteria):
+                            yield VeskoReaderWriter.read_from_given_offset(file, offset, self.META_DATA_LENGTH)
 
                     except Exception:
                         LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
@@ -257,28 +258,47 @@ class DbEngine:
         assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
         assert criteria is not None, 'Argument "criteria" is required!'
 
-        column_number = self.db_table_data[table_name][criteria][1]
-
         try:
             open(f'{self.db_directory}/index_{criteria}_{table_name}.bin', 'x')
-
         except FileExistsError:
             print(f'Cannot create {criteria} index on table "{table_name}". Already exists!')
             raise
 
+        column_number = self.db_table_data[table_name][criteria][1]
+        column_data = []
+        rows = 0
+
         with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as table:
             table.seek(MAX_POINTER_CHARS * 2)
-            index_seq = open(f'{self.db_directory}/index_{criteria}_{table_name}.bin', 'ab')
 
             for row in VeskoReaderWriter.read_table_file(table, self.META_DATA_LENGTH, column_number):
+                rows += 1
+
+                if rows > self.MAX_ROWS_IN_MEMORY:
+                    # TODO
+                    pass
+
                 row_data = row[0].decode()
                 position = row[1]
+                column_data.append({'criteria': row_data, 'position': position})
 
-                blank_space_id = MAX_ID_CHARS - len(str(row_data))
-                blank_space_position = MAX_POSITION_CHARS - len(str(position))
-                data = f'{row_data}{" " * blank_space_id}{position}{" " * blank_space_position}'
+            column_data.sort(key=lambda k: k['criteria'])
 
-                index_seq.write(codecs.encode(data.encode(), 'hex'))
+        index_seq = open(f'{self.db_directory}/index_{criteria}_{table_name}.bin', 'ab')
+        for row in column_data:
+            blank_space_criteria = MAX_CRITERIA_CHARS - len(str(row.get('criteria')))
+            blank_space_position = MAX_POSITION_CHARS - len(str(row.get('position')))
+            data = f' + {row.get("criteria")}{" " * blank_space_criteria}{row.get("position")}{" " * blank_space_position}'
+
+            for i in range(5):
+                blank_data = f' - {" " * MAX_CRITERIA_CHARS}{" " * MAX_POSITION_CHARS}'
+                index_seq.write(codecs.encode(blank_data.encode(), 'hex'))
+
+            index_seq.write(codecs.encode(data.encode(), 'hex'))
+
+            for i in range(5):
+                blank_data = f' - {" " * MAX_CRITERIA_CHARS}{" " * MAX_POSITION_CHARS}'
+                index_seq.write(codecs.encode(blank_data.encode(), 'hex'))
 
         print('Created index!')
 
@@ -298,7 +318,7 @@ class DbEngine:
                 middle = start + (end - start) // 2
 
                 while True:
-                    remainder = middle % (MAX_ID_CHARS * 2 + MAX_POSITION_CHARS * 2)
+                    remainder = middle % (MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2 + DELETED_CHARS * 2)
 
                     if remainder != 0:
                         middle -= remainder
@@ -308,8 +328,27 @@ class DbEngine:
                     data = VeskoReaderWriter.read_index_file(index_seq)
 
                     if data[0] == c_value:
-                        # print(data)
-                        return data[1]
+                        # TODO instead of yielding here check, seek for previous occurrences and then start the while
+                        # yield data[1]
+                        current = index_seq.tell()
+                        print('t', index_seq.tell())
+                        index_seq.seek(current - MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2 + DELETED_CHARS * 2, io.SEEK_SET)
+                        # VeskoReaderWriter.read_index_file_reverse(index_seq)
+                        print('t1', index_seq.tell())
+                        while True:
+                            # middle = middle + MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2 + DELETED_CHARS * 2
+                            # index_seq.seek(middle)
+                            # print('t', index_seq.tell())
+                            data = VeskoReaderWriter.read_index_file(index_seq)
+                            # print('t1', index_seq.tell())
+
+                            if data[0] == c_value:
+                                yield data[1]
+
+                            else:
+                                break
+
+                        break
 
                     elif c_value > data[0]:
                         start = middle
