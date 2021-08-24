@@ -184,20 +184,17 @@ class VeskoReaderWriter:
 
     @staticmethod
     def read_index_file(f):
-        # print('inti')
         deleted = f.read(DELETED_CHARS * 2)
         deleted = codecs.decode(deleted, 'hex')
 
-        # print(deleted)
         if deleted == b' - ':
-            # print('a')
             while True:
-                # print('b')
-                # print(f.read(44))
                 f.seek(MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2, io.SEEK_CUR)
                 deleted_flag = f.read(DELETED_CHARS * 2)
                 deleted_flag = codecs.decode(deleted_flag, 'hex')
-                # print(deleted_flag)
+
+                if deleted_flag == b'':
+                    return
 
                 if deleted_flag != b' - ':
                     break
@@ -205,7 +202,28 @@ class VeskoReaderWriter:
         criteria = f.read(MAX_CRITERIA_CHARS * 2)
         position = f.read(MAX_POSITION_CHARS * 2)
 
-        # print(int(codecs.decode(criteria, 'hex')), int(codecs.decode(position, 'hex')))
+        return int(codecs.decode(criteria, 'hex')), int(codecs.decode(position, 'hex'))
+
+    @staticmethod
+    def read_index_file_reverse(f):
+        f.seek(f.tell() - (MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2), io.SEEK_SET)
+
+        while True:
+            offset = f.tell() - (MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2 + DELETED_CHARS * 4)
+
+            if offset < 0:
+                f.seek(io.SEEK_SET)
+                return
+
+            f.seek(offset, io.SEEK_SET)
+            deleted_flag = f.read(DELETED_CHARS * 2)
+            deleted_flag = codecs.decode(deleted_flag, 'hex')
+
+            if deleted_flag != b' - ':
+                break
+
+        criteria = f.read(MAX_CRITERIA_CHARS * 2)
+        position = f.read(MAX_POSITION_CHARS * 2)
 
         return int(codecs.decode(criteria, 'hex')), int(codecs.decode(position, 'hex'))
 

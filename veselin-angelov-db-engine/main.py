@@ -265,6 +265,7 @@ class DbEngine:
             raise
 
         column_number = self.db_table_data[table_name][criteria][1]
+        column_type = self.db_table_data[table_name][criteria][0]
         column_data = []
         rows = 0
 
@@ -278,11 +279,11 @@ class DbEngine:
                     # TODO
                     pass
 
-                row_data = row[0].decode()
+                row_data = column_type.value(row[0].decode())
                 position = row[1]
                 column_data.append({'criteria': row_data, 'position': position})
 
-            column_data.sort(key=lambda k: k['criteria'])
+        column_data.sort(key=lambda k: k['criteria'])
 
         index_seq = open(f'{self.db_directory}/index_{criteria}_{table_name}.bin', 'ab')
         for row in column_data:
@@ -305,6 +306,8 @@ class DbEngine:
     def search_in_index(self, index_name: str, criteria: dict):
         assert index_name is not None, 'Argument "index_name" is required!'
 
+        data_length = MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2 + DELETED_CHARS * 2
+
         c_key = ''
         c_value = ''
         for key, value in criteria.items():
@@ -318,7 +321,7 @@ class DbEngine:
                 middle = start + (end - start) // 2
 
                 while True:
-                    remainder = middle % (MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2 + DELETED_CHARS * 2)
+                    remainder = middle % data_length
 
                     if remainder != 0:
                         middle -= remainder
@@ -328,21 +331,16 @@ class DbEngine:
                     data = VeskoReaderWriter.read_index_file(index_seq)
 
                     if data[0] == c_value:
-                        # TODO instead of yielding here check, seek for previous occurrences and then start the while
-                        # yield data[1]
-                        current = index_seq.tell()
-                        print('t', index_seq.tell())
-                        index_seq.seek(current - MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2 + DELETED_CHARS * 2, io.SEEK_SET)
-                        # VeskoReaderWriter.read_index_file_reverse(index_seq)
-                        print('t1', index_seq.tell())
                         while True:
-                            # middle = middle + MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2 + DELETED_CHARS * 2
-                            # index_seq.seek(middle)
-                            # print('t', index_seq.tell())
-                            data = VeskoReaderWriter.read_index_file(index_seq)
-                            # print('t1', index_seq.tell())
+                            data = VeskoReaderWriter.read_index_file_reverse(index_seq)
 
-                            if data[0] == c_value:
+                            if not data or data[0] != c_value:
+                                break
+
+                        while True:
+                            data = VeskoReaderWriter.read_index_file(index_seq)
+
+                            if data and data[0] == c_value:
                                 yield data[1]
 
                             else:
@@ -356,11 +354,24 @@ class DbEngine:
                     else:
                         end = middle
 
+                    if end - start == data_length:
+                        print('No results found!')
+                        break
+
                     middle = start + (end - start) // 2
 
         except FileNotFoundError:
             print(f'Index "{c_key}" on "{index_name}" does not exist!')
             raise
+
+    def insert_index(self):
+        pass
+
+    def update_index(self):
+        pass
+
+    def delete_index(self):
+        pass
 
 
 def test():
