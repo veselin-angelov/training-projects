@@ -85,11 +85,11 @@ class VeskoReaderWriter:
         return result
 
     @staticmethod
-    def read_file(f, meta_length: int, column_number: int = None, read_table: bool = False):
+    def read_file(f, meta_length: int, column_number: int = None, read_table_data: bool = False):
         while True:
             position = f.tell()
 
-            if read_table and position == VeskoReaderWriter.read_pointer_info(f):
+            if read_table_data and position == VeskoReaderWriter.read_pointer_info(f):
                 break
 
             meta_size = f.read(MAX_META_CHARS * 2)
@@ -184,48 +184,54 @@ class VeskoReaderWriter:
 
     @staticmethod
     def read_index_file(f):
-        deleted = f.read(DELETED_CHARS * 2)
-        deleted = codecs.decode(deleted, 'hex')
+        data = f.read(MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 4)
+        data = codecs.decode(data, 'hex')
 
-        if deleted == b' - ':
-            while True:
-                f.seek(MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2, io.SEEK_CUR)
-                deleted_flag = f.read(DELETED_CHARS * 2)
-                deleted_flag = codecs.decode(deleted_flag, 'hex')
+        index_data = data[:MAX_CRITERIA_CHARS]
+        first_element = data[MAX_CRITERIA_CHARS:MAX_CRITERIA_CHARS + MAX_POSITION_CHARS]
+        last_element = data[MAX_CRITERIA_CHARS + MAX_POSITION_CHARS:]
 
-                if deleted_flag == b'':
-                    return
+        index_data = int(index_data) if index_data.strip() else None
+        first_element = int(first_element) if first_element.strip() else None
+        last_element = int(last_element) if last_element.strip() else None
 
-                if deleted_flag != b' - ':
-                    break
-
-        criteria = f.read(MAX_CRITERIA_CHARS * 2)
-        position = f.read(MAX_POSITION_CHARS * 2)
-
-        return int(codecs.decode(criteria, 'hex')), int(codecs.decode(position, 'hex'))
+        return index_data, first_element, last_element
 
     @staticmethod
-    def read_index_file_reverse(f):
-        f.seek(f.tell() - (MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2), io.SEEK_SET)
+    def read_index_data_file(f):
+        data = f.read(MAX_POSITION_CHARS * 4)
+        data = codecs.decode(data, 'hex')
 
-        while True:
-            offset = f.tell() - (MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2 + DELETED_CHARS * 4)
+        data_pointer = data[:MAX_POSITION_CHARS]
+        next_element = data[MAX_POSITION_CHARS:]
 
-            if offset < 0:
-                f.seek(io.SEEK_SET)
-                return
+        data_pointer = int(data_pointer) if data_pointer.strip() else None
+        next_element = int(next_element) if next_element.strip() else None
 
-            f.seek(offset, io.SEEK_SET)
-            deleted_flag = f.read(DELETED_CHARS * 2)
-            deleted_flag = codecs.decode(deleted_flag, 'hex')
+        return data_pointer, next_element
 
-            if deleted_flag != b' - ':
-                break
+    @staticmethod
+    def write_index_data_file(index_seq, index_data, position, data):
+        index_data.seek(0, io.SEEK_END)
+        pointer = index_data.tell()
+        position_blank_space = MAX_POSITION_CHARS - len(str(position))
+        write_index_data = f'{position}{" " * position_blank_space}{" " * MAX_POSITION_CHARS}'
+        index_data.write(codecs.encode(write_index_data.encode(), 'hex'))
 
-        criteria = f.read(MAX_CRITERIA_CHARS * 2)
-        position = f.read(MAX_POSITION_CHARS * 2)
+        if data[1] and data[2]:
+            pointer_blank_space = MAX_POSITION_CHARS - len(str(pointer))
+            latest_index_data = f'{pointer}{" " * pointer_blank_space}'
+            index_data.seek(data[2] + MAX_POSITION_CHARS * 2, io.SEEK_SET)
+            index_data.write(codecs.encode(latest_index_data.encode(), 'hex'))
 
-        return int(codecs.decode(criteria, 'hex')), int(codecs.decode(position, 'hex'))
+            index_seq.seek(index_seq.tell() - MAX_POSITION_CHARS * 2)
+            index_seq.write(codecs.encode(latest_index_data.encode(), 'hex'))
+
+        else:
+            pointer_blank_space = MAX_POSITION_CHARS - len(str(pointer))
+            index_seq.seek(index_seq.tell() - MAX_POSITION_CHARS * 4)
+            write_index_seq = f'{pointer}{" " * pointer_blank_space}{pointer}{" " * pointer_blank_space}'
+            index_seq.write(codecs.encode(write_index_seq.encode(), 'hex'))
 
     @staticmethod
     def read_from_given_offset(f, offset: int, meta_length: int):

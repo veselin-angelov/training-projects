@@ -115,16 +115,16 @@ class DbEngine:
         encoded_line = VeskoReaderWriter.encode_line(insert_data, self.META_DATA_LENGTH)
 
         with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
-            file.seek(VeskoReaderWriter.read_pointer_info(file))
+            position = VeskoReaderWriter.read_pointer_info(file)
+            file.seek(position)
 
             if lock:
                 LockFile.lock(f'{self.db_directory}/table_{table_name}.bin')
 
                 try:
-                    # print('writing')
                     file.write(encoded_line)
+                    self.insert_index(table_name, position, criteria)  # TODO criteria is a part of values
                     VeskoReaderWriter.write_pointer_info(file, file.tell())
-                    # print('end')
 
                 except Exception:
                     LockFile.unlock(f'{self.db_directory}/table_{table_name}.bin')
@@ -136,6 +136,8 @@ class DbEngine:
 
             else:
                 file.write(encoded_line)
+                self.insert_index(table_name, position, criteria)
+                VeskoReaderWriter.write_pointer_info(file, file.tell())
                 print('Inserted a row!')
                 return file.tell()
 
@@ -159,7 +161,6 @@ class DbEngine:
                     if row[0].decode() == c_value:
                         if line_numbers:
                             yield row[1], row[2]
-
                         else:
                             pos = file.tell()
                             file.seek(row[1] + row[2] + MAX_META_CHARS * 2, io.SEEK_SET)
@@ -260,53 +261,73 @@ class DbEngine:
 
         try:
             open(f'{self.db_directory}/index_{criteria}_{table_name}.bin', 'x')
+            open(f'{self.db_directory}/index_data_{criteria}_{table_name}.bin', 'x')
         except FileExistsError:
             print(f'Cannot create {criteria} index on table "{table_name}". Already exists!')
             raise
 
+        data_length = MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 4
         column_number = self.db_table_data[table_name][criteria][1]
         column_type = self.db_table_data[table_name][criteria][0]
-        column_data = []
+        unique_column_data = set()
         rows = 0
 
         with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as table:
             table.seek(MAX_POINTER_CHARS * 2)
 
             for row in VeskoReaderWriter.read_table_file(table, self.META_DATA_LENGTH, column_number):
+                row_data = column_type.value(row[0].decode())
+                unique_column_data.add(row_data)
+
                 rows += 1
 
                 if rows > self.MAX_ROWS_IN_MEMORY:
-                    # TODO
-                    pass
+                    pass  # TODO
 
-                row_data = column_type.value(row[0].decode())
-                position = row[1]
-                column_data.append({'criteria': row_data, 'position': position})
+        values_count = len(unique_column_data)
+        max_value = max(unique_column_data)
+        unique_column_data.clear()
 
-        column_data.sort(key=lambda k: k['criteria'])
+        index_range = max_value
 
-        index_seq = open(f'{self.db_directory}/index_{criteria}_{table_name}.bin', 'ab')
-        for row in column_data:
-            blank_space_criteria = MAX_CRITERIA_CHARS - len(str(row.get('criteria')))
-            blank_space_position = MAX_POSITION_CHARS - len(str(row.get('position')))
-            data = f' + {row.get("criteria")}{" " * blank_space_criteria}{row.get("position")}{" " * blank_space_position}'
+        if max_value - values_count > 500000:
+            index_range = values_count + 500000
 
-            for i in range(5):
-                blank_data = f' - {" " * MAX_CRITERIA_CHARS}{" " * MAX_POSITION_CHARS}'
-                index_seq.write(codecs.encode(blank_data.encode(), 'hex'))
+        index_seq = open(f'{self.db_directory}/index_{criteria}_{table_name}.bin', 'rb+')
+        for i in range(index_range + 100000):
+            blank_space_criteria = MAX_CRITERIA_CHARS - len(str(i))
+            data = f'{i}{" " * blank_space_criteria}{" " * MAX_POSITION_CHARS}{" " * MAX_POSITION_CHARS}'
 
             index_seq.write(codecs.encode(data.encode(), 'hex'))
 
-            for i in range(5):
-                blank_data = f' - {" " * MAX_CRITERIA_CHARS}{" " * MAX_POSITION_CHARS}'
-                index_seq.write(codecs.encode(blank_data.encode(), 'hex'))
+        index_seq.seek(io.SEEK_SET)
+
+        index_data = open(f'{self.db_directory}/index_data_{criteria}_{table_name}.bin', 'rb+')
+
+        with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as table:
+            table.seek(MAX_POINTER_CHARS * 2)
+
+            for row in VeskoReaderWriter.read_table_file(table, self.META_DATA_LENGTH, column_number):
+                row_data = column_type.value(row[0].decode())
+                position = row[1]
+
+                index_seq.seek(row_data * data_length)
+
+                data = VeskoReaderWriter.read_index_file(index_seq)
+
+                if data[0] == row_data:
+                    VeskoReaderWriter.write_index_data_file(index_seq, index_data, position, data)
+
+                else:
+                    pass  # TODO binary search
 
         print('Created index!')
 
-    def search_in_index(self, index_name: str, criteria: dict):
-        assert index_name is not None, 'Argument "index_name" is required!'
+    def search_in_index(self, table_name: str, criteria: dict):
+        assert table_name is not None, 'Argument "index_name" is required!'
+        assert criteria is not None, 'Argument "criteria" is required!'
 
-        data_length = MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 2 + DELETED_CHARS * 2
+        data_length = MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 4
 
         c_key = ''
         c_value = ''
@@ -315,238 +336,100 @@ class DbEngine:
             c_value = value
 
         try:
-            with open(f'{self.db_directory}/index_{c_key}_{index_name}.bin', 'rb') as index_seq:
-                start = 0
-                end = os.stat(f'{self.db_directory}/index_{c_key}_{index_name}.bin').st_size
-                middle = start + (end - start) // 2
+            index_seq = open(f'{self.db_directory}/index_{c_key}_{table_name}.bin', 'rb')
+            index_seq.seek(c_value * data_length)
 
+            index_seq_data = VeskoReaderWriter.read_index_file(index_seq)
+
+            if index_seq_data[0] != c_value:
+                return  # TODO binary search
+
+            index_data = open(f'{self.db_directory}/index_data_{c_key}_{table_name}.bin', 'rb')
+
+            index_data.seek(index_seq_data[1], io.SEEK_SET)
+
+            with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as table:
                 while True:
-                    remainder = middle % data_length
+                    index_data_data = VeskoReaderWriter.read_index_data_file(index_data)
+                    # print(VeskoReaderWriter.read_from_given_offset(table, index_data_data[0], self.META_DATA_LENGTH))
+                    yield index_data_data[0]
 
-                    if remainder != 0:
-                        middle -= remainder
-
-                    index_seq.seek(middle)
-
-                    data = VeskoReaderWriter.read_index_file(index_seq)
-
-                    if data[0] == c_value:
-                        while True:
-                            data = VeskoReaderWriter.read_index_file_reverse(index_seq)
-
-                            if not data or data[0] != c_value:
-                                break
-
-                        while True:
-                            data = VeskoReaderWriter.read_index_file(index_seq)
-
-                            if data and data[0] == c_value:
-                                yield data[1]
-
-                            else:
-                                break
-
+                    if not index_data_data[1]:
                         break
 
-                    elif c_value > data[0]:
-                        start = middle
+                    index_data.seek(index_data_data[1])
 
-                    else:
-                        end = middle
-
-                    if end - start == data_length:
-                        print('No results found!')
-                        break
-
-                    middle = start + (end - start) // 2
-
-        except FileNotFoundError:
-            print(f'Index "{c_key}" on "{index_name}" does not exist!')
+        except Exception as e:
+            print(e)
             raise
 
-    def insert_index(self):
+    # def read_index(self):
+    #     with open(f'{self.db_directory}/index_id_table.bin', 'rb') as index_seq:
+    #         while True:
+    #             data = VeskoReaderWriter.read_index_file(index_seq)
+    #             print(data)
+    #             if data[0] is None:
+    #                 break
+    #
+    # def read_file_test(self):
+    #     with open(f'{self.db_directory}/index_data_id_table.bin', 'rb') as index_data:
+    #         data = index_data.read()
+    #         data = codecs.decode(data, 'hex')
+    #         print(data)
+
+    def insert_index(self, table_name: str, position: int, criteria: dict):
+        assert table_name is not None, 'Argument "index_name" is required!'
+        assert criteria is not None, 'Argument "criteria" is required!'
+
+        data_length = MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 4
+
+        c_key = ''
+        c_value = ''
+        for key, value in criteria.items():
+            c_key = key
+            c_value = value
+
+        index_seq = open(f'{self.db_directory}/index_{c_key}_{table_name}.bin', 'rb+')
+        index_data = open(f'{self.db_directory}/index_data_{c_key}_{table_name}.bin', 'rb+')
+
+        data = VeskoReaderWriter.read_index_file(index_seq)
+
+        index_seq.seek(c_value * data_length)
+
+        if data[0] == c_value:
+            VeskoReaderWriter.write_index_data_file(index_seq, index_data, position, data)
+
+        else:
+            pass  # TODO binary search
+
+    def update_index(self):  # delete the row, just add the new row to the index table
         pass
 
-    def update_index(self):
-        pass
+    def delete_index(self, table_name: str, criteria: dict):
+        assert table_name is not None, 'Argument "index_name" is required!'
+        assert criteria is not None, 'Argument "criteria" is required!'
 
-    def delete_index(self):
-        pass
+        data_length = MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 4
 
+        c_key = ''
+        c_value = ''
+        for key, value in criteria.items():
+            c_key = key
+            c_value = value
 
-def test():
-    try:
-        engine = DbEngine()
+        try:
+            index_seq = open(f'{self.db_directory}/index_{c_key}_{table_name}.bin', 'rb')
+            index_seq.seek(c_value * data_length)
 
-        # engine.create_db('test1')
-        engine.use_db('test1')
+            index_seq_data = VeskoReaderWriter.read_index_file(index_seq)
 
-        users = {
-            'user_id': DataType.INT,
-            'username': DataType.TEXT,
-            'password': DataType.TEXT,
-        }
+            if index_seq_data[0] != c_value:
+                return  # TODO binary search
 
-        # engine.create_table('users', users)
+            index_seq.seek(c_value * data_length + MAX_CRITERIA_CHARS * 2)
+            write_data = f'{" " * MAX_POSITION_CHARS * 2}'
+            index_seq.write(codecs.encode(write_data, 'hex'))
 
-        cars = {
-            'car_id': DataType.INT,
-            'model': DataType.TEXT,
-        }
-
-        # engine.create_table('cars', cars)
-        # print(engine.db_table_data)
-
-        tickets = {
-            'ticket_id': DataType.INT,
-            'name': DataType.TEXT,
-            'reason': DataType.TEXT,
-            'price': DataType.INT,
-        }
-
-        # engine.create_table('tickets', tickets)
-        # print(engine.db_table_data)
-
-        # *[1, 'vesko', 'vesko']
-
-        user = {
-            'user_id': 1,
-            'username': 'vesko',
-            'password': 'vesko',
-        }
-
-        user1 = {
-            'user_id': 2,
-            'username': 'tzetzo',
-            'password': 'tzetzo',
-        }
-
-        user2 = {
-            'user_id': 3,
-            'username': 'daniel',
-            'password': 'daniel',
-        }
-
-        user3 = {
-            'user_id': 4,
-            'username': 'momo',
-            'password': 'momo',
-        }
-
-        user4 = {
-            'user_id': 5,
-            'username': 'aleks',
-            'password': 'aleks',
-        }
-
-        user5 = {
-            'user_id': 6,
-            'username': 'obo',
-            'password': 'obo'
-        }
-
-        engine.insert('users', user)
-        engine.insert('users', user1)
-        engine.insert('users', user2)
-        engine.insert('users', user3)
-        engine.insert('users', user4)
-        engine.insert('users', user5)
-
-        # engine.use_db('test')
-
-        # criteria = {
-        #     'username': 'vesko',
-        # }
-        #
-        # engine.select('users', criteria)
-
-    except Exception as e:
-        print(e)
-        raise
-
-
-def test_select():
-    engine = DbEngine()
-
-    engine.use_db('test1')
-
-    criteria = {
-        'user_id': 2,
-    }
-
-    for res in engine.select('users', criteria):
-        print(res)
-
-    # for row in engine.select('users'):
-    #     print(row)
-
-    # print(engine.select('users', criteria))
-    # for row in engine.select('users', criteria):
-    #     print(row)
-
-
-def test_select_all():
-    engine = DbEngine()
-
-    engine.use_db('test1')
-
-    for res in engine.select('users'):
-        print(res)
-
-
-def test_delete():
-    engine = DbEngine()
-
-    engine.use_db('test1')
-
-    criteria = {
-        'username': 'daniel',
-    }
-
-    engine.delete('users', criteria)
-
-
-def test_update():
-    engine = DbEngine()
-
-    engine.use_db('test1')
-
-    criteria = {
-        'username': 'daniel',
-    }
-
-    values = {
-        'username': 'vesko1',
-        'password': 'oksev'
-    }
-
-    engine.update('users', criteria, values)
-
-
-if __name__ == '__main__':
-    pass
-    # test()
-    # test_delete()
-    # test_update()
-    # test_select()
-    # test_select_all()
-
-    # engine = DbEngine()
-    #
-    # engine.use_db('test-db2')
-    #
-    # # engine.create_index('table', 'id')
-    #
-    # criteria = {
-    #     'name': 'Leon'
-    # }
-    #
-    # engine.select('table')
-
-    # s = time.time()
-    # engine.read_index('table', 10000)
-    # print(time.time() - s)
-
-    # with open(f'/home/veselin/Documents/databases/test1/table_users.bin', 'rb') as file:
-    #     data = file.read()
-    #     print(codecs.decode(data, 'hex'))
+        except Exception as e:
+            print(e)
+            raise
