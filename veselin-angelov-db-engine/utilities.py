@@ -7,7 +7,7 @@ from time import sleep
 
 MAX_META_CHARS = 6
 MAX_POINTER_CHARS = 20
-MAX_CRITERIA_CHARS = 10
+MAX_CRITERION_CHARS = 10
 MAX_POSITION_CHARS = 12
 DELETED_CHARS = 3
 
@@ -17,7 +17,7 @@ class DataType(Enum):
     TEXT = str
 
 
-class LockFile:
+class FileLocker:
 
     @staticmethod
     def lock(file: str):
@@ -29,7 +29,7 @@ class LockFile:
 
         except FileExistsError:
             sleep(0.1)
-            LockFile.lock(file)
+            FileLocker.lock(file)
             # print(f'Cannot lock "{file}". Already locked!')
             # raise
 
@@ -43,7 +43,7 @@ class LockFile:
 
         except FileExistsError:
             sleep(0.1)
-            LockFile.unlock(file)
+            FileLocker.unlock(file)
             # print(f'Cannot unlock "{file}". File is not locked!')
             # raise
 
@@ -184,12 +184,12 @@ class VeskoReaderWriter:
 
     @staticmethod
     def read_index_file(f):
-        data = f.read(MAX_CRITERIA_CHARS * 2 + MAX_POSITION_CHARS * 4)
+        data = f.read(MAX_CRITERION_CHARS * 2 + MAX_POSITION_CHARS * 4)
         data = codecs.decode(data, 'hex')
 
-        index_data = data[:MAX_CRITERIA_CHARS]
-        first_element = data[MAX_CRITERIA_CHARS:MAX_CRITERIA_CHARS + MAX_POSITION_CHARS]
-        last_element = data[MAX_CRITERIA_CHARS + MAX_POSITION_CHARS:]
+        index_data = data[:MAX_CRITERION_CHARS]
+        first_element = data[MAX_CRITERION_CHARS:MAX_CRITERION_CHARS + MAX_POSITION_CHARS]
+        last_element = data[MAX_CRITERION_CHARS + MAX_POSITION_CHARS:]
 
         index_data = int(index_data) if index_data.strip() else None
         first_element = int(first_element) if first_element.strip() else None
