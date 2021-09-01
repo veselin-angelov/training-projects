@@ -96,6 +96,22 @@ class DbEngine:
 
         FileLocker.unlock(self.db_meta_file_dir)
 
+    def __insert(self, file, table_name, encoded_line, criteria):
+        position = VeskoReaderWriter.read_pointer_info(file)
+        file.seek(position)
+
+        try:
+            file.write(encoded_line)
+            VeskoReaderWriter.write_pointer_info(file, file.tell())
+            file.flush()
+
+            for criterion in criteria:
+                self.insert_int_index(table_name, position, criterion)
+
+        except Exception:
+            FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
+            raise
+
     def insert(self, table_name: str, values: dict, lock: bool = True):
         assert table_name is not None, 'Argument "table_name" is required!'
         assert values is not None, 'Argument "values" is required!'
@@ -123,39 +139,20 @@ class DbEngine:
             if lock:
                 FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
 
-                position = VeskoReaderWriter.read_pointer_info(file)
-                file.seek(position)
-
-                try:
-                    file.write(encoded_line)
-                    for criterion in criteria:
-                        self.insert_index(table_name, position, criterion)
-
-                    VeskoReaderWriter.write_pointer_info(file, file.tell())
-
-                except Exception:
-                    FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
-                    raise
+                self.__insert(file, table_name, encoded_line, criteria)
 
                 FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
                 print('Inserted a row!')
                 return
 
             else:
-                position = VeskoReaderWriter.read_pointer_info(file)  # TODO export insert logic in private function
-                file.seek(position)
-
-                file.write(encoded_line)  # TODO try-catch
-                for criterion in criteria:
-                    self.insert_index(table_name, position, criterion)
-
-                VeskoReaderWriter.write_pointer_info(file, file.tell())
+                self.__insert(file, table_name, encoded_line, criteria)
                 print('Inserted a row!')
                 return file.tell()
 
-    def _search(self, table_name: str, criterion: dict, line_numbers=False, lock: bool = True):
-        c_key = ''  # TODO None
-        c_value = ''
+    def __search(self, table_name: str, criterion: dict, line_numbers=False, lock: bool = True):
+        c_key = None
+        c_value = None
         for key, value in criterion.items():
             c_key = key
             c_value = str(value)
@@ -211,7 +208,7 @@ class DbEngine:
                 FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
         else:
-            c_key = ''
+            c_key = None
             for key, value in criterion.items():
                 c_key = key
 
@@ -220,7 +217,7 @@ class DbEngine:
                     FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
 
                     try:
-                        for offset in self.search_in_index(table_name, criterion):
+                        for offset in self.search_in_int_index(table_name, criterion):
                             result = VeskoReaderWriter.read_from_given_offset(file, offset, self.META_DATA_LENGTH)
 
                             if result is not None:
@@ -233,17 +230,24 @@ class DbEngine:
                     FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
             else:
-                for row in self._search(table_name, criterion):
+                for row in self.__search(table_name, criterion):
                     yield row
 
     def delete(self, table_name: str, criterion: dict, lock: bool = True):
         assert table_name is not None, 'Argument "table_name" is required!'
         assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
 
+        c_key = None
+        for key, value in criterion.items():
+            c_key = key
+
         with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
-            for line in self._search(table_name, criterion, True, lock):
+            for line in self.__search(table_name, criterion, True, lock):
                 file.seek(line[0] + line[1] + MAX_META_CHARS * 2 - DELETED_CHARS * 2 + 2)
                 file.write(codecs.encode('-'.encode(), 'hex'))
+
+                if os.path.isfile(f'{self.db_directory}/index_{c_key}_{table_name}.bin'):
+                    self.delete_from_int_index(table_name, criterion)
 
                 print('Deleted 1 row!')
 
@@ -252,7 +256,7 @@ class DbEngine:
         assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
         assert values is not None, 'Argument "values" is required!'
 
-        for row in self._search(table_name, criterion):
+        for row in self.__search(table_name, criterion):
             row_dict = self.db_table_data[table_name].copy()
 
             for index, value in enumerate(row_dict):
@@ -269,7 +273,7 @@ class DbEngine:
                         VeskoReaderWriter.write_pointer_info(file, position)
                     print('Updated 1 row!')
 
-    def create_index(self, table_name: str, criterion: str):  # TODO create_id_index
+    def create_int_index(self, table_name: str, criterion: str):
         assert table_name is not None, 'Argument "table_name" is required!'
         assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
         assert criterion is not None, 'Argument "criterion" is required!'
@@ -301,12 +305,14 @@ class DbEngine:
 
         values_count = len(unique_column_data)
         max_value = max(unique_column_data)
-        unique_column_data.clear()
 
         index_range = max_value
 
         if max_value - values_count > 500000:
             index_range = values_count + 500000
+
+        unique_column_data_exclusive = [i for i in unique_column_data if i > index_range]
+        unique_column_data.clear()
 
         index_seq = open(f'{self.db_directory}/index_{criterion}_{table_name}.bin', 'rb+')
         for i in range(index_range + 100000):
@@ -314,6 +320,14 @@ class DbEngine:
             data = f'{i}{" " * blank_space_criterion}{" " * MAX_POSITION_CHARS}{" " * MAX_POSITION_CHARS}'
 
             index_seq.write(codecs.encode(data.encode(), 'hex'))
+
+        for element in unique_column_data_exclusive:
+            blank_space_criterion = MAX_CRITERION_CHARS - len(str(element))
+            data = f'{element}{" " * blank_space_criterion}{" " * MAX_POSITION_CHARS}{" " * MAX_POSITION_CHARS}'
+
+            index_seq.write(codecs.encode(data.encode(), 'hex'))
+
+        unique_column_data_exclusive.clear()
 
         index_seq.seek(io.SEEK_SET)
 
@@ -334,18 +348,29 @@ class DbEngine:
                     VeskoReaderWriter.write_index_data_file(index_seq, index_data, position, data)
 
                 else:
-                    pass  # TODO binary search
+                    index_seq_size = os.stat(f'{self.db_directory}/index_{criterion}_{table_name}.bin').st_size
+                    result = VeskoReaderWriter.binary_search(index_seq, index_seq_size, row_data, data_length)
+                    VeskoReaderWriter.write_index_data_file(index_seq, index_data, position, result)
 
         print('Created index!')
 
-    def search_in_index(self, table_name: str, criterion: dict):
+    def delete_int_index(self, table_name: str, criterion: str):
+        try:
+            os.remove(f'{self.db_directory}/index_{criterion}_{table_name}.bin')
+            os.remove(f'{self.db_directory}/index_data_{criterion}_{table_name}.bin')
+
+        except Exception as e:
+            print(e)
+            raise
+
+    def search_in_int_index(self, table_name: str, criterion: dict):
         assert table_name is not None, 'Argument "index_name" is required!'
         assert criterion is not None, 'Argument "criterion" is required!'
 
         data_length = MAX_CRITERION_CHARS * 2 + MAX_POSITION_CHARS * 4
 
-        c_key = ''
-        c_value = ''
+        c_key = None
+        c_value = None
         for key, value in criterion.items():
             c_key = key
             c_value = value
@@ -356,21 +381,25 @@ class DbEngine:
 
             index_seq_data = VeskoReaderWriter.read_index_file(index_seq)
 
+            offset = index_seq_data[1]
+
             if index_seq_data[0] != c_value:
-                return  # TODO binary search
+                index_seq_size = os.stat(f'{self.db_directory}/index_{c_key}_{table_name}.bin').st_size
+                result = VeskoReaderWriter.binary_search(index_seq, index_seq_size, c_value, data_length)
+                if result[0]:
+                    offset = result[1]
 
             index_data = open(f'{self.db_directory}/index_data_{c_key}_{table_name}.bin', 'rb')
 
-            if index_seq_data[1] is None:
+            if offset is None:
                 print('Record not found!')
                 return
 
-            index_data.seek(index_seq_data[1], io.SEEK_SET)
+            index_data.seek(offset, io.SEEK_SET)
 
-            # with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as table:
             while True:
                 index_data_data = VeskoReaderWriter.read_index_data_file(index_data)
-                # print(VeskoReaderWriter.read_from_given_offset(table, index_data_data[0], self.META_DATA_LENGTH))
+
                 yield index_data_data[0]
 
                 if not index_data_data[1]:
@@ -382,14 +411,15 @@ class DbEngine:
             print(e)
             raise
 
-    def insert_index(self, table_name: str, position: int, criterion: dict):
+    def insert_int_index(self, table_name: str, position: int, criterion: dict):
         assert table_name is not None, 'Argument "index_name" is required!'
+        assert position is not None, 'Argument "position" is required!'
         assert criterion is not None, 'Argument "criterion" is required!'
 
         data_length = MAX_CRITERION_CHARS * 2 + MAX_POSITION_CHARS * 4
 
-        c_key = ''
-        c_value = ''
+        c_key = None
+        c_value = None
         for key, value in criterion.items():
             c_key = key
             c_value = value
@@ -402,38 +432,78 @@ class DbEngine:
         data = VeskoReaderWriter.read_index_file(index_seq)
 
         if data[0] == c_value:
-            VeskoReaderWriter.write_index_data_file(index_seq, index_data, position, data)  # TODO missing assert or private func
+            VeskoReaderWriter.write_index_data_file(index_seq, index_data, position, data)
 
         else:
-            pass  # TODO binary search
+            index_seq_size = os.stat(f'{self.db_directory}/index_{c_key}_{table_name}.bin').st_size
+            result = VeskoReaderWriter.binary_search(index_seq, index_seq_size, c_value, data_length)
 
-    def update_index(self):  # delete the row, just add the new row to the index table
-        pass
+            if result[0]:  # index key
+                VeskoReaderWriter.write_index_data_file(index_seq, index_data, position, result)
 
-    def delete_index(self, table_name: str, criterion: dict):
+            else:
+                if result[1] == 1:  # add to the end of index file
+                    index_seq.seek(0, io.SEEK_END)
+                    VeskoReaderWriter.write_index_seq_file(index_seq, index_data, c_key, c_value, position, data_length,
+                                                           self.db_directory, table_name)
+
+                else:
+                    index_seq.seek(index_seq.tell() - data_length)
+
+                    flag = False
+                    old_row = None
+
+                    while True:
+                        row = VeskoReaderWriter.read_index_file(index_seq)
+
+                        if not row[0]:
+                            break
+
+                        if c_value < row[0] and not flag:
+                            index_seq.seek(index_seq.tell() - data_length)
+                            VeskoReaderWriter.write_index_seq_file(index_seq, index_data, c_key, c_value, position,
+                                                                   data_length, self.db_directory, table_name)
+                            old_row = row
+                            flag = True
+
+                        elif flag:
+                            blank_space_criterion = MAX_CRITERION_CHARS - len(str(old_row[0]))
+                            blank_space_first = MAX_POSITION_CHARS - len(str(old_row[1]))
+                            blank_space_last = MAX_POSITION_CHARS - len(str(old_row[2]))
+                            data = f'{old_row[0]}{" " * blank_space_criterion}{old_row[1]}{" " * blank_space_first}' \
+                                   f'{old_row[2]}{" " * blank_space_last}'
+                            index_seq.seek(index_seq.tell() - data_length, io.SEEK_SET)
+                            index_seq.write(codecs.encode(data.encode(), 'hex'))
+                            index_seq.flush()
+                            old_row = row
+
+    def delete_from_int_index(self, table_name: str, criterion: dict):
         assert table_name is not None, 'Argument "index_name" is required!'
         assert criterion is not None, 'Argument "criterion" is required!'
 
         data_length = MAX_CRITERION_CHARS * 2 + MAX_POSITION_CHARS * 4
 
-        c_key = ''
-        c_value = ''
+        c_key = None
+        c_value = None
         for key, value in criterion.items():
             c_key = key
             c_value = value
 
         try:
-            index_seq = open(f'{self.db_directory}/index_{c_key}_{table_name}.bin', 'rb')
+            index_seq = open(f'{self.db_directory}/index_{c_key}_{table_name}.bin', 'rb+')
             index_seq.seek(c_value * data_length)
 
             index_seq_data = VeskoReaderWriter.read_index_file(index_seq)
 
             if index_seq_data[0] != c_value:
-                return  # TODO binary search
+                index_seq_size = os.stat(f'{self.db_directory}/index_{c_key}_{table_name}.bin').st_size
+                result = VeskoReaderWriter.binary_search(index_seq, index_seq_size, c_value, data_length)
+                if result[0]:
+                    c_value = result[1]
 
             index_seq.seek(c_value * data_length + MAX_CRITERION_CHARS * 2)
-            write_data = f'{" " * MAX_POSITION_CHARS * 2}'  # TODO check if * 2 or * 4
-            index_seq.write(codecs.encode(write_data, 'hex'))
+            write_data = f'{" " * MAX_POSITION_CHARS * 2}'
+            index_seq.write(codecs.encode(write_data.encode(), 'hex'))
 
         except Exception as e:
             print(e)
@@ -446,7 +516,7 @@ class DbEngine:
     #             print(data)
     #             if data[0] is None:
     #                 break
-    #
+
     # def read_file_test(self):
     #     with open(f'{self.db_directory}/index_data_id_table.bin', 'rb') as index_data:
     #         data = index_data.read()

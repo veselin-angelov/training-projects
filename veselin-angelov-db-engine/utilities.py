@@ -4,7 +4,6 @@ import os
 from enum import Enum
 from time import sleep
 
-
 MAX_META_CHARS = 6
 MAX_POINTER_CHARS = 20
 MAX_CRITERION_CHARS = 10
@@ -21,7 +20,6 @@ class FileLocker:
 
     @staticmethod
     def lock(file: str):
-
         assert file is not None, 'Argument "file" is required!'
 
         try:
@@ -35,7 +33,6 @@ class FileLocker:
 
     @staticmethod
     def unlock(file: str):
-
         assert file is not None, 'Argument "file" is required!'
 
         try:
@@ -52,6 +49,8 @@ class VeskoReaderWriter:
 
     @staticmethod
     def encode_line(values: list, meta_length: int):
+        assert values is not None, 'Argument "values" is required!'
+        assert meta_length is not None, 'Argument "meta_length" is required!'
 
         values_len = []
 
@@ -73,6 +72,9 @@ class VeskoReaderWriter:
 
     @staticmethod
     def raw_data_to_list(data_len: list, data: b''):
+        assert data_len is not None, 'Argument "data_len" is required!'
+        assert data is not None, 'Argument "data" is required!'
+
         result = []
         prev = 0
 
@@ -86,6 +88,9 @@ class VeskoReaderWriter:
 
     @staticmethod
     def read_file(f, meta_length: int, column_number: int = None, read_table_data: bool = False):
+        assert f is not None, 'Argument "f" is required!'
+        assert meta_length is not None, 'Argument "meta_length" is required!'
+
         while True:
             position = f.tell()
 
@@ -125,6 +130,8 @@ class VeskoReaderWriter:
 
     @staticmethod
     def read_table_file(f, meta_length: int, column_number: int = None):
+        assert f is not None, 'Argument "f" is required!'
+        assert meta_length is not None, 'Argument "meta_length" is required!'
 
         for row in VeskoReaderWriter.read_file(f, meta_length, column_number, True):
             data = codecs.decode(row[0], 'hex')
@@ -137,6 +144,9 @@ class VeskoReaderWriter:
 
     @staticmethod
     def read_meta_file(f, meta_length: int):
+        assert f is not None, 'Argument "f" is required!'
+        assert meta_length is not None, 'Argument "meta_length" is required!'
+
         tables = dict()
 
         for row in VeskoReaderWriter.read_file(f, meta_length):
@@ -165,6 +175,8 @@ class VeskoReaderWriter:
 
     @staticmethod
     def read_pointer_info(f):
+        assert f is not None, 'Argument "f" is required!'
+
         pos = f.tell()
         f.seek(0)
         data = f.read(MAX_POINTER_CHARS * 2)
@@ -175,6 +187,9 @@ class VeskoReaderWriter:
 
     @staticmethod
     def write_pointer_info(f, position: int):
+        assert f is not None, 'Argument "f" is required!'
+        assert position is not None, 'Argument "position" is required!'
+
         blank_space = MAX_POINTER_CHARS - len(str(position))
         data = f'{position}{" " * blank_space}'
         data = data.encode()
@@ -184,6 +199,8 @@ class VeskoReaderWriter:
 
     @staticmethod
     def read_index_file(f):
+        assert f is not None, 'Argument "f" is required!'
+
         data = f.read(MAX_CRITERION_CHARS * 2 + MAX_POSITION_CHARS * 4)
         data = codecs.decode(data, 'hex')
 
@@ -199,6 +216,8 @@ class VeskoReaderWriter:
 
     @staticmethod
     def read_index_data_file(f):
+        assert f is not None, 'Argument "f" is required!'
+
         data = f.read(MAX_POSITION_CHARS * 4)
         data = codecs.decode(data, 'hex')
 
@@ -211,14 +230,19 @@ class VeskoReaderWriter:
         return data_pointer, next_element
 
     @staticmethod
-    def write_index_data_file(index_seq, index_data, position, data):
+    def write_index_data_file(index_seq, index_data, position: int, data: list):
+        assert index_seq is not None, 'Argument "index_seq" is required!'
+        assert index_data is not None, 'Argument "index_data" is required!'
+        assert position is not None, 'Argument "position" is required!'
+        assert data is not None, 'Argument "data" is required!'
+
         index_data.seek(0, io.SEEK_END)
         pointer = index_data.tell()
         position_blank_space = MAX_POSITION_CHARS - len(str(position))
         write_index_data = f'{position}{" " * position_blank_space}{" " * MAX_POSITION_CHARS}'
         index_data.write(codecs.encode(write_index_data.encode(), 'hex'))
 
-        if data[1] and data[2]:
+        if data and data[1] and data[2]:
             pointer_blank_space = MAX_POSITION_CHARS - len(str(pointer))
             latest_index_data = f'{pointer}{" " * pointer_blank_space}'
             index_data.seek(data[2] + MAX_POSITION_CHARS * 2, io.SEEK_SET)
@@ -234,7 +258,31 @@ class VeskoReaderWriter:
             index_seq.write(codecs.encode(write_index_seq.encode(), 'hex'))
 
     @staticmethod
+    def write_index_seq_file(index_seq, index_data, key, value, position, data_length, db_dir, table_name):
+        assert index_seq is not None, 'Argument "index_seq" is required!'
+        assert index_data is not None, 'Argument "index_data" is required!'
+        assert position is not None, 'Argument "position" is required!'
+        assert key is not None, 'Argument "key" is required!'
+        assert value is not None, 'Argument "value" is required!'
+        assert data_length is not None, 'Argument "data_length" is required!'
+        assert db_dir is not None, 'Argument "db_dir" is required!'
+        assert table_name is not None, 'Argument "table_name" is required!'
+
+        blank_space_criterion = MAX_CRITERION_CHARS - len(str(value))
+        data = f'{value}{" " * blank_space_criterion}{" " * MAX_POSITION_CHARS * 2}'
+        index_seq.write(codecs.encode(data.encode(), 'hex'))
+        index_seq.flush()
+
+        index_seq_size = os.stat(f'{db_dir}/index_{key}_{table_name}.bin').st_size
+        result = VeskoReaderWriter.binary_search(index_seq, index_seq_size, value, data_length)
+        VeskoReaderWriter.write_index_data_file(index_seq, index_data, position, result)
+
+    @staticmethod
     def read_from_given_offset(f, offset: int, meta_length: int):
+        assert f is not None, 'Argument "f" is required!'
+        assert offset is not None, 'Argument "offset" is required!'
+        assert meta_length is not None, 'Argument "meta_length" is required!'
+
         f.seek(offset)
         meta_size = f.read(MAX_META_CHARS * 2)
         meta_size = codecs.decode(meta_size, 'hex')
@@ -250,3 +298,51 @@ class VeskoReaderWriter:
         if deleted == b' + ':
             data = f.read(sum(data_len))
             return VeskoReaderWriter.raw_data_to_list(data_len, codecs.decode(data, 'hex'))
+
+    @staticmethod
+    def binary_search(index_seq, index_seq_size, c_value, data_length):
+        start = 0
+        end = index_seq_size
+        middle = start + (end - start) // 2
+
+        index_seq.seek(0 - data_length, io.SEEK_END)
+        biggest_index = VeskoReaderWriter.read_index_file(index_seq)
+
+        # print('b', biggest_index)
+
+        while True:
+            remainder = middle % data_length
+
+            if remainder != 0:
+                middle -= remainder
+
+            index_seq.seek(middle)
+
+            data = VeskoReaderWriter.read_index_file(index_seq)
+
+            if data[0] == c_value:
+                # print(data)
+                return data
+
+            elif c_value > data[0]:
+                start = middle
+
+            else:
+                end = middle
+
+            # print(start, middle, end, data)
+
+            if end - start == data_length:
+                print('No results found!')
+                # return None
+                # if c_value == biggest_index[0] + 1:
+                #     return None, 0  # 0 = index is right after the last that exists aka add more rows
+
+                if c_value > biggest_index[0]:
+                    return None, 1  # None = Not found, 1 = biggest
+
+                else:
+                    # print('asd')
+                    return None, -1  # -1 = less than biggest
+
+            middle = start + (end - start) // 2
