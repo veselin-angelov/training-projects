@@ -192,7 +192,7 @@ class DbEngine:
         assert table_name is not None, 'Argument "table_name" is required!'
         assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
 
-        if not criterion:  # TODO ne trqbva da se kopira koda
+        if not criterion:
             with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
                 FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
                 file.seek(MAX_POINTER_CHARS * 2)
@@ -301,7 +301,7 @@ class DbEngine:
                 rows += 1
 
                 if rows > self.MAX_ROWS_IN_MEMORY:
-                    pass  # TODO
+                    pass
 
         values_count = len(unique_column_data)
         max_value = max(unique_column_data)
@@ -374,6 +374,9 @@ class DbEngine:
         for key, value in criterion.items():
             c_key = key
             c_value = value
+
+        assert os.path.isfile(f'{self.db_directory}/index_{c_key}_{table_name}.bin'), \
+            f'Index on column "{c_key}" in table "{table_name}" does not exist!'
 
         try:
             index_seq = open(f'{self.db_directory}/index_{c_key}_{table_name}.bin', 'rb')
@@ -470,7 +473,8 @@ class DbEngine:
                             blank_space_criterion = MAX_CRITERION_CHARS - len(str(old_row[0]))
                             blank_space_first = MAX_POSITION_CHARS - len(str(old_row[1]))
                             blank_space_last = MAX_POSITION_CHARS - len(str(old_row[2]))
-                            data = f'{old_row[0]}{" " * blank_space_criterion}{old_row[1]}{" " * blank_space_first}' \
+                            data = f'{old_row[0]}{" " * blank_space_criterion}' \
+                                   f'{old_row[1]}{" " * blank_space_first}' \
                                    f'{old_row[2]}{" " * blank_space_last}'
                             index_seq.seek(index_seq.tell() - data_length, io.SEEK_SET)
                             index_seq.write(codecs.encode(data.encode(), 'hex'))
@@ -508,6 +512,16 @@ class DbEngine:
         except Exception as e:
             print(e)
             raise
+
+    def begin_transaction(self):
+        # TODO lock file for writing
+        pass
+
+    def commit_transaction(self):
+        pass
+
+    def rollback_transaction(self):
+        pass
 
     # def read_index(self):
     #     with open(f'{self.db_directory}/index_id_table.bin', 'rb') as index_seq:

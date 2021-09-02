@@ -23,6 +23,7 @@ class FileLocker:
         assert file is not None, 'Argument "file" is required!'
 
         try:
+            print(os.getpid())
             open(f'{file}.lock', 'x')
 
         except FileExistsError:
@@ -308,8 +309,6 @@ class VeskoReaderWriter:
         index_seq.seek(0 - data_length, io.SEEK_END)
         biggest_index = VeskoReaderWriter.read_index_file(index_seq)
 
-        # print('b', biggest_index)
-
         while True:
             remainder = middle % data_length
 
@@ -321,7 +320,6 @@ class VeskoReaderWriter:
             data = VeskoReaderWriter.read_index_file(index_seq)
 
             if data[0] == c_value:
-                # print(data)
                 return data
 
             elif c_value > data[0]:
@@ -330,19 +328,13 @@ class VeskoReaderWriter:
             else:
                 end = middle
 
-            # print(start, middle, end, data)
-
             if end - start == data_length:
                 print('No results found!')
-                # return None
-                # if c_value == biggest_index[0] + 1:
-                #     return None, 0  # 0 = index is right after the last that exists aka add more rows
 
                 if c_value > biggest_index[0]:
                     return None, 1  # None = Not found, 1 = biggest
 
                 else:
-                    # print('asd')
                     return None, -1  # -1 = less than biggest
 
             middle = start + (end - start) // 2
