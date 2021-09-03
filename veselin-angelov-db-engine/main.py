@@ -42,17 +42,17 @@ class DbEngine:
         self.db_name = name
         self.db_directory = f'{self.DEFAULT_DB_DIR}{self.db_name}'
         self.db_meta_file_dir = f'{self.db_directory}/{self.db_name}.bin'
-        FileLocker.lock(self.db_meta_file_dir)
+        # FileLocker.lock(self.db_meta_file_dir)
 
         try:
             self.db_meta_file = open(self.db_meta_file_dir, 'rb+')
             self.db_table_data = VeskoReaderWriter.read_meta_file(self.db_meta_file, self.META_DATA_LENGTH)
 
         except Exception:
-            FileLocker.unlock(self.db_meta_file_dir)
+            # FileLocker.unlock(self.db_meta_file_dir)
             raise
 
-        FileLocker.unlock(self.db_meta_file_dir)
+        # FileLocker.unlock(self.db_meta_file_dir)
 
         print(f'Using database {name}')
 
@@ -63,14 +63,21 @@ class DbEngine:
         try:
             open(f'{self.db_directory}/table_{name}.bin', 'x')
 
-            FileLocker.lock(f'{self.db_directory}/table_{name}.bin')
-            table = open(f'{self.db_directory}/table_{name}.bin', 'wb')
-            VeskoReaderWriter.write_pointer_info(table, MAX_POINTER_CHARS * 2)
-            FileLocker.unlock(f'{self.db_directory}/table_{name}.bin')
-
         except FileExistsError:
             print(f'Cannot create table "{name}". Already exists!')
             raise
+
+        FileLocker.lock(f'{self.db_directory}/table_{name}.bin')
+
+        try:
+            table = open(f'{self.db_directory}/table_{name}.bin', 'wb')
+            VeskoReaderWriter.write_pointer_info(table, MAX_POINTER_CHARS * 2)
+
+        except Exception:
+            FileLocker.unlock(f'{self.db_directory}/table_{name}.bin')
+            raise
+
+        FileLocker.unlock(f'{self.db_directory}/table_{name}.bin')
 
         FileLocker.lock(self.db_meta_file_dir)
 
@@ -100,17 +107,12 @@ class DbEngine:
         position = VeskoReaderWriter.read_pointer_info(file)
         file.seek(position)
 
-        try:
-            file.write(encoded_line)
-            VeskoReaderWriter.write_pointer_info(file, file.tell())
-            file.flush()
+        file.write(encoded_line)
+        VeskoReaderWriter.write_pointer_info(file, file.tell())
+        file.flush()
 
-            for criterion in criteria:
-                self.insert_int_index(table_name, position, criterion)
-
-        except Exception:
-            FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
-            raise
+        for criterion in criteria:
+            self.insert_int_index(table_name, position, criterion)
 
     def insert(self, table_name: str, values: dict, lock: bool = True):
         assert table_name is not None, 'Argument "table_name" is required!'
@@ -139,7 +141,12 @@ class DbEngine:
             if lock:
                 FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
 
-                self.__insert(file, table_name, encoded_line, criteria)
+                try:
+                    self.__insert(file, table_name, encoded_line, criteria)
+
+                except Exception:
+                    FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
+                    raise
 
                 FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
                 print('Inserted a row!')
@@ -149,6 +156,49 @@ class DbEngine:
                 self.__insert(file, table_name, encoded_line, criteria)
                 print('Inserted a row!')
                 return file.tell()
+
+    def __transaction_insert(self, file, encoded_line, offset):
+        # position = VeskoReaderWriter.read_pointer_info(file)
+        file.seek(offset)
+
+        file.write(encoded_line)
+        # VeskoReaderWriter.write_pointer_info(file, file.tell())
+        # file.flush()
+
+        # for criterion in criteria:
+        #     self.insert_int_index(table_name, position, criterion)
+        return file.tell()
+
+    def transaction_insert(self, table_name: str, values: dict, offset: int = None):
+        assert table_name is not None, 'Argument "table_name" is required!'
+        assert values is not None, 'Argument "values" is required!'
+        assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
+        assert len(self.db_table_data[table_name]) == len(values), \
+            f'Expected {len(self.db_table_data[table_name])} values, got {len(values)}'
+
+        table_data = self.db_table_data[table_name]
+        insert_data = []
+        criteria = []
+
+        for column_name in table_data:
+            assert column_name in values, f'Value for {column_name} is missing!'
+            assert isinstance(values[column_name], table_data[column_name][0].value), \
+                f'Received {type(values[column_name])}, expected {table_data[column_name].value}!'
+
+            if os.path.isfile(f'{self.db_directory}/index_{column_name}_{table_name}.bin'):
+                criteria.append({column_name: values[column_name]})
+
+            insert_data.append(str(values[column_name]))
+
+        encoded_line = VeskoReaderWriter.encode_line(insert_data, self.META_DATA_LENGTH)
+
+        with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
+            if not offset:
+                offset = VeskoReaderWriter.read_pointer_info(file)
+
+            position = self.__transaction_insert(file, encoded_line, offset)
+            print('Inserted a row!')
+            return position, criteria
 
     def __search(self, table_name: str, criterion: dict, line_numbers=False, lock: bool = True):
         c_key = None
@@ -188,24 +238,24 @@ class DbEngine:
             if lock:
                 FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
-    def select(self, table_name: str, criterion=None):
+    def select(self, table_name: str, criterion: dict = None, whence: int = None):
         assert table_name is not None, 'Argument "table_name" is required!'
         assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
 
         if not criterion:
             with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
-                FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
+                # FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
                 file.seek(MAX_POINTER_CHARS * 2)
 
                 try:
-                    for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH):
+                    for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH, whence):
                         yield row[0]
 
                 except Exception:
-                    FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
+                    # FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
                     raise
 
-                FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
+                # FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
         else:
             c_key = None
@@ -214,7 +264,7 @@ class DbEngine:
 
             if os.path.isfile(f'{self.db_directory}/index_{c_key}_{table_name}.bin'):
                 with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
-                    FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
+                    # FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
 
                     try:
                         for offset in self.search_in_int_index(table_name, criterion):
@@ -224,10 +274,10 @@ class DbEngine:
                                 yield result
 
                     except Exception:
-                        FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
+                        # FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
                         raise
 
-                    FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
+                    # FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
             else:
                 for row in self.__search(table_name, criterion):
@@ -513,9 +563,44 @@ class DbEngine:
             print(e)
             raise
 
-    def begin_transaction(self):
-        # TODO lock file for writing
-        pass
+    def transaction(self):
+        insert_queue = []
+        table_name = 'table'
+
+        FileLocker.lock(f'{self.db_directory}/{table_name}.bin')
+
+        try:
+            insert_data1 = {
+                'id': 500,
+                'name': 'Vesko',
+                'age': 19,
+                'description': 'Lud'
+            }
+
+            insert1 = self.transaction_insert(table_name, insert_data1)
+            whence = insert1[0]
+            insert_queue.append(insert1)
+
+            self.select(table_name, whence)  # select with custom whence(pointer for end of file)
+
+            # TODO add to INDEX AND DELETE flag for transaction
+
+            insert_data2 = {
+                'id': 1000,
+                'name': 'Vesko1',
+                'age': 20,
+                'description': 'Angl'
+            }
+
+            insert2 = self.transaction_insert(table_name, insert_data2, whence)
+            whence = insert2[0]
+            insert_queue.append(insert2)
+
+        except Exception:
+            FileLocker.lock(f'{self.db_directory}/{table_name}.bin')
+            raise
+
+        FileLocker.unlock(f'{self.db_directory}/{table_name}.bin')
 
     def commit_transaction(self):
         pass

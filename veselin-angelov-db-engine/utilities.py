@@ -16,34 +16,99 @@ class DataType(Enum):
     TEXT = str
 
 
+class LockType(Enum):
+    READ = 'w'
+    WRITE = 'rw'
+
+
+class TableInTransactionException(Exception):
+    pass
+
+
 class FileLocker:
 
     @staticmethod
-    def lock(file: str):
-        assert file is not None, 'Argument "file" is required!'
+    def __create_lock(file_name, mode):
+        lock_name = f'{file_name}.{mode.value}.lock'
+        pid = os.getpid()
+        open(lock_name, 'x')
+        file = open(lock_name, 'w')
+        FileLocker.write_pid(file, pid)
+
+    @staticmethod
+    def lock(file_name: str):
+        assert file_name is not None, 'Argument "file_name" is required!'
+        # assert mode is not None, 'Argument "mode" is required!'
 
         try:
-            print(os.getpid())
-            open(f'{file}.lock', 'x')
+            # if mode == LockType.READ:
+            #     if FileLocker.check_lock(file_name, LockType.WRITE):
+            #         sleep(0.1)
+            #         FileLocker.lock(file_name, mode)
+            #
+            #     elif not FileLocker.check_lock(file_name, LockType.READ):
+            #         FileLocker.__create_lock(file_name, LockType.READ)
+            #
+            # elif mode == LockType.WRITE:
+            #     if FileLocker.check_lock(file_name, LockType.READ) or FileLocker.check_lock(file_name, LockType.WRITE):
+            #         sleep(0.1)
+            #         FileLocker.lock(file_name, mode)
+            #
+            #     else:
+            #         FileLocker.__create_lock(file_name, LockType.WRITE)
+
+            lock_name = f'{file_name}.lock'
+            pid = os.getpid()
+            open(lock_name, 'x')
+            file = open(lock_name, 'w')
+            FileLocker.write_pid(file, pid)
 
         except FileExistsError:
             sleep(0.1)
-            FileLocker.lock(file)
+            FileLocker.lock(file_name)
             # print(f'Cannot lock "{file}". Already locked!')
             # raise
 
     @staticmethod
-    def unlock(file: str):
-        assert file is not None, 'Argument "file" is required!'
+    def unlock(file_name: str):
+        assert file_name is not None, 'Argument "file_name" is required!'
+        # assert mode is not None, 'Argument "mode" is required!'
 
         try:
-            os.remove(f'{file}.lock')
+            lock_name = f'{file_name}.lock'
+            pid = os.getpid()
+            file = open(lock_name, 'r')
+            lock_pid = FileLocker.read_pid(file)
+            # print(lock_pid)
+
+            if lock_pid == pid:
+                os.remove(f'{file_name}.lock')
+
+            else:
+                raise TableInTransactionException
 
         except FileExistsError:
             sleep(0.1)
-            FileLocker.unlock(file)
+            FileLocker.unlock(file_name)
             # print(f'Cannot unlock "{file}". File is not locked!')
             # raise
+
+    @staticmethod
+    def write_pid(file, pid: int):
+        file.write(str(pid))
+
+    @staticmethod
+    def read_pid(file):
+        pid = file.read()
+        return int(pid)
+
+    @staticmethod
+    def check_lock(file_name: str, mode: LockType):
+        assert file_name is not None, 'Argument "file_name" is required!'
+        assert mode is not None, 'Argument "mode" is required!'
+
+        lock_name = f'{file_name}.{mode.value}.lock'
+        return os.path.isfile(lock_name)
 
 
 class VeskoReaderWriter:
@@ -88,14 +153,17 @@ class VeskoReaderWriter:
         return result
 
     @staticmethod
-    def read_file(f, meta_length: int, column_number: int = None, read_table_data: bool = False):
+    def read_file(f, meta_length: int, column_number: int = None, read_table_data: bool = False, whence: int = None):
         assert f is not None, 'Argument "f" is required!'
         assert meta_length is not None, 'Argument "meta_length" is required!'
 
         while True:
             position = f.tell()
 
-            if read_table_data and position == VeskoReaderWriter.read_pointer_info(f):
+            if not whence:
+                whence = VeskoReaderWriter.read_pointer_info(f)
+
+            if read_table_data and position == whence:
                 break
 
             meta_size = f.read(MAX_META_CHARS * 2)
@@ -130,11 +198,11 @@ class VeskoReaderWriter:
                 f.seek(sum(data_len), io.SEEK_CUR)
 
     @staticmethod
-    def read_table_file(f, meta_length: int, column_number: int = None):
+    def read_table_file(f, meta_length: int, column_number: int = None, whence: int = None):
         assert f is not None, 'Argument "f" is required!'
         assert meta_length is not None, 'Argument "meta_length" is required!'
 
-        for row in VeskoReaderWriter.read_file(f, meta_length, column_number, True):
+        for row in VeskoReaderWriter.read_file(f, meta_length, column_number, True, whence):
             data = codecs.decode(row[0], 'hex')
 
             if column_number is not None:
