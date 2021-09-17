@@ -2,13 +2,14 @@ import codecs
 import io
 import os
 from enum import Enum
-from time import sleep
 
-MAX_META_CHARS = 6
+MAX_META_CHARS = 6  # len of all meta data
 MAX_POINTER_CHARS = 20
 MAX_CRITERION_CHARS = 10
 MAX_POSITION_CHARS = 12
-DELETED_CHARS = 3
+DELETED_CHARS = 1
+TRANSACTION_CHARS = 1
+MAX_PID_LENGTH = 7
 
 
 class DataType(Enum):
@@ -16,113 +17,31 @@ class DataType(Enum):
     TEXT = str
 
 
-class LockType(Enum):
-    READ = 'w'
-    WRITE = 'rw'
-
-
 class TableInTransactionException(Exception):
     pass
 
 
-class FileLocker:
-
-    @staticmethod
-    def __create_lock(file_name, mode):
-        lock_name = f'{file_name}.{mode.value}.lock'
-        pid = os.getpid()
-        open(lock_name, 'x')
-        file = open(lock_name, 'w')
-        FileLocker.write_pid(file, pid)
-
-    @staticmethod
-    def lock(file_name: str):
-        assert file_name is not None, 'Argument "file_name" is required!'
-        # assert mode is not None, 'Argument "mode" is required!'
-
-        try:
-            # if mode == LockType.READ:
-            #     if FileLocker.check_lock(file_name, LockType.WRITE):
-            #         sleep(0.1)
-            #         FileLocker.lock(file_name, mode)
-            #
-            #     elif not FileLocker.check_lock(file_name, LockType.READ):
-            #         FileLocker.__create_lock(file_name, LockType.READ)
-            #
-            # elif mode == LockType.WRITE:
-            #     if FileLocker.check_lock(file_name, LockType.READ) or FileLocker.check_lock(file_name, LockType.WRITE):
-            #         sleep(0.1)
-            #         FileLocker.lock(file_name, mode)
-            #
-            #     else:
-            #         FileLocker.__create_lock(file_name, LockType.WRITE)
-
-            lock_name = f'{file_name}.lock'
-            pid = os.getpid()
-            open(lock_name, 'x')
-            file = open(lock_name, 'w')
-            FileLocker.write_pid(file, pid)
-
-        except FileExistsError:
-            sleep(0.1)
-            FileLocker.lock(file_name)
-            # print(f'Cannot lock "{file}". Already locked!')
-            # raise
-
-    @staticmethod
-    def unlock(file_name: str):
-        assert file_name is not None, 'Argument "file_name" is required!'
-        # assert mode is not None, 'Argument "mode" is required!'
-
-        try:
-            lock_name = f'{file_name}.lock'
-            pid = os.getpid()
-            file = open(lock_name, 'r')
-            lock_pid = FileLocker.read_pid(file)
-            # print(lock_pid)
-
-            if lock_pid == pid:
-                os.remove(f'{file_name}.lock')
-
-            else:
-                raise TableInTransactionException
-
-        except FileExistsError:
-            sleep(0.1)
-            FileLocker.unlock(file_name)
-            # print(f'Cannot unlock "{file}". File is not locked!')
-            # raise
-
-    @staticmethod
-    def write_pid(file, pid: int):
-        file.write(str(pid))
-
-    @staticmethod
-    def read_pid(file):
-        pid = file.read()
-        return int(pid)
-
-    @staticmethod
-    def check_lock(file_name: str, mode: LockType):
-        assert file_name is not None, 'Argument "file_name" is required!'
-        assert mode is not None, 'Argument "mode" is required!'
-
-        lock_name = f'{file_name}.{mode.value}.lock'
-        return os.path.isfile(lock_name)
+class RowInTransactionException(Exception):
+    pass
 
 
 class VeskoReaderWriter:
 
     @staticmethod
-    def encode_line(values: list, meta_length: int):
+    def encode_line(values: list, meta_length: int, pid: int = None, deleted: str = "+", transaction_deleted: str = "+"):
         assert values is not None, 'Argument "values" is required!'
         assert meta_length is not None, 'Argument "meta_length" is required!'
 
         values_len = []
 
-        meta_data_size = len(values) * meta_length * 2 + DELETED_CHARS * 2
-        blank_space = MAX_META_CHARS - len(str(meta_data_size))
-        data = f'{meta_data_size}{" " * blank_space}'
+        meta_data_size = len(values) * meta_length * 2 + DELETED_CHARS * 2 + TRANSACTION_CHARS * 2 + MAX_PID_LENGTH * 2
+        meta_data_size_blank_space = MAX_META_CHARS - len(str(meta_data_size))
+        data = f'{meta_data_size}{" " * meta_data_size_blank_space}'
+
+        if pid:
+            pid_blank_space = MAX_PID_LENGTH - len(str(pid))
+        else:
+            pid_blank_space = MAX_PID_LENGTH
 
         for value in values:
             value_len = len(value) * 2  # HEX len is twice the normal
@@ -132,12 +51,18 @@ class VeskoReaderWriter:
 
             values_len.append(f'{value_len}{" " * blank_space}')
 
-        data += f'{"".join(values_len)} + {"".join(values)}'
+        data += f'{"".join(values_len)}' \
+                f'{deleted}' \
+                f'{transaction_deleted}' \
+                f'{pid if pid else ""}' \
+                f'{" " * pid_blank_space}' \
+                f'{"".join(values)}'
+
         data = data.encode()
         return codecs.encode(data, 'hex')
 
     @staticmethod
-    def raw_data_to_list(data_len: list, data: b''):
+    def raw_data_to_list(data_len: list, data: str):
         assert data_len is not None, 'Argument "data_len" is required!'
         assert data is not None, 'Argument "data" is required!'
 
@@ -146,70 +71,149 @@ class VeskoReaderWriter:
 
         for column_size in data_len:
             index = int(column_size / 2)
-            value = data[prev:prev + index].decode()
+            value = data[prev:prev + index]
             result.append(value)
             prev += index
 
         return result
 
     @staticmethod
-    def read_file(f, meta_length: int, column_number: int = None, read_table_data: bool = False, whence: int = None):
+    def read_table_meta_data(f):
+        assert f is not None, 'Argument "f" is required!'
+
+        meta_size = f.read(MAX_META_CHARS * 2)
+        meta_size = codecs.decode(meta_size, 'hex')
+
+        if meta_size == b'':
+            return None
+
+        meta_size = int(meta_size)
+
+        meta = f.read(meta_size)
+        meta_readable = codecs.decode(meta, 'hex')
+        pid = meta_readable[-MAX_PID_LENGTH:]
+        transaction_deleted = meta_readable[-(MAX_PID_LENGTH + TRANSACTION_CHARS):-MAX_PID_LENGTH]
+        deleted = meta_readable[
+                  -(MAX_PID_LENGTH + TRANSACTION_CHARS + DELETED_CHARS):-(MAX_PID_LENGTH + TRANSACTION_CHARS)]
+
+        pid = int(pid) if pid.strip() else None
+
+        return {
+            'meta_size': meta_size,
+            'meta_readable': meta_readable,
+            'deleted': deleted,
+            'transaction_deleted': transaction_deleted,
+            'pid': pid
+        }
+
+    @staticmethod
+    def read_from_given_offset(f, offset: int, meta_length: int):  # TODO check the function
+        assert f is not None, 'Argument "f" is required!'
+        assert offset is not None, 'Argument "offset" is required!'
+        assert meta_length is not None, 'Argument "meta_length" is required!'
+
+        f.seek(offset)
+        meta_data = VeskoReaderWriter.read_table_meta_data(f)
+
+        if not meta_data:
+            return None
+
+        data_len = []
+        for start in range(0, len(meta_data.get('meta_readable')) - (MAX_PID_LENGTH + TRANSACTION_CHARS + DELETED_CHARS), meta_length):
+            data_len.append(int(meta_data.get('meta_readable')[start:start + meta_length]))
+
+        if meta_data.get('transaction_deleted') == b'+' or meta_data.get('deleted') == b'+':
+            if meta_data.get('pid') is not None and meta_data.get('pid') != os.getpid():
+                raise RowInTransactionException
+
+            else:
+                data = f.read(sum(data_len))
+                return VeskoReaderWriter.raw_data_to_list(data_len, codecs.decode(data, 'hex').decode())
+
+    @staticmethod
+    def __make_response(meta_data, data, data_len, position):
+        data = codecs.decode(data, 'hex').decode()
+
+        if meta_data.get('pid') is not None and meta_data.get('pid') != os.getpid():
+            return {
+                'data': data,
+                'error': RowInTransactionException
+            }
+
+        else:
+            return {
+                'data': data,
+                'data_len': data_len,
+                'position': position,
+                'meta_size': meta_data.get('meta_size'),
+                'transaction_deleted': meta_data.get('transaction_deleted'),
+                'pid': meta_data.get('pid')
+            }
+
+    @staticmethod
+    def read_file(f, meta_length: int, column_number: int = None, read_table_data: bool = False):
         assert f is not None, 'Argument "f" is required!'
         assert meta_length is not None, 'Argument "meta_length" is required!'
 
         while True:
             position = f.tell()
 
-            if not whence:
-                whence = VeskoReaderWriter.read_pointer_info(f)
-
-            if read_table_data and position == whence:
+            if read_table_data and position == VeskoReaderWriter.read_pointer_info(f):
                 break
 
-            meta_size = f.read(MAX_META_CHARS * 2)
-            meta_size = codecs.decode(meta_size, 'hex')
+            meta_data = VeskoReaderWriter.read_table_meta_data(f)
 
-            if meta_size == b'':
+            if not meta_data:
                 break
-
-            meta = f.read(int(meta_size))
-            meta_readable = codecs.decode(meta, 'hex')
-            deleted = meta_readable[-3:]
 
             data_len = []
-            for start in range(0, len(meta_readable) - 3, meta_length):
-                data_len.append(int(meta_readable[start:start + meta_length]))
+            for start in range(0, len(meta_data.get('meta_readable')) - (MAX_PID_LENGTH + TRANSACTION_CHARS + DELETED_CHARS), meta_length):
+                data_len.append(int(meta_data.get('meta_readable')[start:start + meta_length]))
 
-            if deleted == b' + ':
+            if meta_data.get('transaction_deleted') == b'+' or meta_data.get('deleted') == b'+':
                 if column_number is not None:
                     for index, column_len in enumerate(data_len):
                         if index == column_number:
                             data = f.read(column_len)
-                            yield data, data_len, position, int(meta_size)
+                            yield VeskoReaderWriter.__make_response(meta_data, data, data_len, position)
 
                         else:
                             f.seek(column_len, io.SEEK_CUR)
 
                 else:
                     data = f.read(sum(data_len))
-                    yield data, data_len, position, int(meta_size)
+                    yield VeskoReaderWriter.__make_response(meta_data, data, data_len, position)
 
             else:
                 f.seek(sum(data_len), io.SEEK_CUR)
 
     @staticmethod
-    def read_table_file(f, meta_length: int, column_number: int = None, whence: int = None):
+    def read_table_file(f, meta_length: int, column_number: int = None):
         assert f is not None, 'Argument "f" is required!'
         assert meta_length is not None, 'Argument "meta_length" is required!'
 
-        for row in VeskoReaderWriter.read_file(f, meta_length, column_number, True, whence):
-            data = codecs.decode(row[0], 'hex')
+        for row in VeskoReaderWriter.read_file(f, meta_length, column_number, True):
+
+            if row.get('error'):
+                yield row
+                continue
 
             if column_number is not None:
-                yield data, row[2], row[3], row[1]
+                yield {
+                    'data': row.get('data'),
+                    'data_len': row.get('data_len'),
+                    'position': row.get('position'),
+                    'meta_size': row.get('meta_size'),
+                    'transaction_deleted': row.get('transaction_deleted'),
+                    'pid': row.get('pid')
+                }
 
             else:
-                yield VeskoReaderWriter.raw_data_to_list(row[1], data), row[2], row[3]
+                yield {
+                    'parsed_data': VeskoReaderWriter.raw_data_to_list(row.get('data_len'), row.get('data')),
+                    'position': row.get('position'),
+                    'meta_size': row.get('meta_size')
+                }
 
     @staticmethod
     def read_meta_file(f, meta_length: int):
@@ -219,14 +223,13 @@ class VeskoReaderWriter:
         tables = dict()
 
         for row in VeskoReaderWriter.read_file(f, meta_length):
-            data = codecs.decode(row[0], 'hex')
             prev = 0
             position = 0
             table_name = ''
-            for count, column_size in enumerate(row[1]):
+            for count, column_size in enumerate(row.get('data_len')):
                 if count % 2 != 0 or prev == 0:
                     index = int(column_size / 2)
-                    name = data[prev:prev + index].decode()
+                    name = row.get('data')[prev:prev + index]
                     prev += index
 
                     if prev - index == 0:
@@ -234,8 +237,8 @@ class VeskoReaderWriter:
                         tables[table_name] = {}
 
                     else:
-                        index1 = int(row[1][count + 1] / 2)
-                        value = data[prev:prev + index1].decode()
+                        index1 = int(row.get('data_len')[count + 1] / 2)
+                        value = row.get('data')[prev:prev + index1]
                         tables[table_name][name] = getattr(DataType, value), position
                         prev += index1
                         position += 1
@@ -267,7 +270,7 @@ class VeskoReaderWriter:
         f.write(codecs.encode(data, 'hex'))
 
     @staticmethod
-    def read_index_file(f):
+    def read_index_file(f):  # TODO add transaction delete and delete flag to index
         assert f is not None, 'Argument "f" is required!'
 
         data = f.read(MAX_CRITERION_CHARS * 2 + MAX_POSITION_CHARS * 4)
@@ -345,28 +348,6 @@ class VeskoReaderWriter:
         index_seq_size = os.stat(f'{db_dir}/index_{key}_{table_name}.bin').st_size
         result = VeskoReaderWriter.binary_search(index_seq, index_seq_size, value, data_length)
         VeskoReaderWriter.write_index_data_file(index_seq, index_data, position, result)
-
-    @staticmethod
-    def read_from_given_offset(f, offset: int, meta_length: int):
-        assert f is not None, 'Argument "f" is required!'
-        assert offset is not None, 'Argument "offset" is required!'
-        assert meta_length is not None, 'Argument "meta_length" is required!'
-
-        f.seek(offset)
-        meta_size = f.read(MAX_META_CHARS * 2)
-        meta_size = codecs.decode(meta_size, 'hex')
-
-        meta = f.read(int(meta_size))
-        meta_readable = codecs.decode(meta, 'hex')
-        deleted = meta_readable[-3:]
-
-        data_len = []
-        for start in range(0, len(meta_readable) - 3, meta_length):
-            data_len.append(int(meta_readable[start:start + meta_length]))
-
-        if deleted == b' + ':
-            data = f.read(sum(data_len))
-            return VeskoReaderWriter.raw_data_to_list(data_len, codecs.decode(data, 'hex'))
 
     @staticmethod
     def binary_search(index_seq, index_seq_size, c_value, data_length):

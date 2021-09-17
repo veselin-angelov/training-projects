@@ -1,12 +1,11 @@
 import codecs
 import io
 import os
-import sys
-import time
-from time import sleep
 
-from utilities import DataType, FileLocker, VeskoReaderWriter, MAX_META_CHARS, DELETED_CHARS, MAX_POINTER_CHARS, \
-    MAX_CRITERION_CHARS, MAX_POSITION_CHARS
+from transaction import Transaction
+from file_locker import FileLocker
+from utilities import VeskoReaderWriter, MAX_META_CHARS, DELETED_CHARS, MAX_POINTER_CHARS, \
+    MAX_CRITERION_CHARS, MAX_POSITION_CHARS, TRANSACTION_CHARS, MAX_PID_LENGTH
 
 
 class DbEngine:
@@ -103,104 +102,135 @@ class DbEngine:
 
         FileLocker.unlock(self.db_meta_file_dir)
 
-    def __insert(self, file, table_name, encoded_line, criteria):
+    def __insert(self, file, table_name, encoded_line, criteria, update):
         position = VeskoReaderWriter.read_pointer_info(file)
         file.seek(position)
 
         file.write(encoded_line)
-        VeskoReaderWriter.write_pointer_info(file, file.tell())
+
+        if not update:
+            VeskoReaderWriter.write_pointer_info(file, file.tell())
+
         file.flush()
 
         for criterion in criteria:
             self.insert_int_index(table_name, position, criterion)
 
-    def insert(self, table_name: str, values: dict, lock: bool = True):
+    def insert(self, table_name: str, values: dict, update: bool = False):
         assert table_name is not None, 'Argument "table_name" is required!'
         assert values is not None, 'Argument "values" is required!'
         assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
         assert len(self.db_table_data[table_name]) == len(values), \
             f'Expected {len(self.db_table_data[table_name])} values, got {len(values)}'
 
-        table_data = self.db_table_data[table_name]
-        insert_data = []
-        criteria = []
+        try:
+            table_data = self.db_table_data[table_name]
+            insert_data = []
+            criteria = []
 
-        for column_name in table_data:
-            assert column_name in values, f'Value for {column_name} is missing!'
-            assert isinstance(values[column_name], table_data[column_name][0].value), \
-                f'Received {type(values[column_name])}, expected {table_data[column_name].value}!'
+            for column_name in table_data:
+                assert column_name in values, f'Value for {column_name} is missing!'
+                assert isinstance(values[column_name], table_data[column_name][0].value), \
+                    f'Received {type(values[column_name])}, expected {table_data[column_name].value}!'
 
-            if os.path.isfile(f'{self.db_directory}/index_{column_name}_{table_name}.bin'):
-                criteria.append({column_name: values[column_name]})
+                if os.path.isfile(f'{self.db_directory}/index_{column_name}_{table_name}.bin'):
+                    criteria.append({column_name: values[column_name]})
 
-            insert_data.append(str(values[column_name]))
+                insert_data.append(str(values[column_name]))
 
-        encoded_line = VeskoReaderWriter.encode_line(insert_data, self.META_DATA_LENGTH)
+            encoded_line = VeskoReaderWriter.encode_line(insert_data, self.META_DATA_LENGTH)
 
-        with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
-            if lock:
+            with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
                 FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
-
-                try:
-                    self.__insert(file, table_name, encoded_line, criteria)
-
-                except Exception:
-                    FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
-                    raise
-
-                FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
-                print('Inserted a row!')
-                return
-
-            else:
-                self.__insert(file, table_name, encoded_line, criteria)
+                self.__insert(file, table_name, encoded_line, criteria, update=update)
                 print('Inserted a row!')
                 return file.tell()
 
-    def __transaction_insert(self, file, encoded_line, offset):
-        # position = VeskoReaderWriter.read_pointer_info(file)
-        file.seek(offset)
+        except Exception:
+            FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
+            raise
 
-        file.write(encoded_line)
-        # VeskoReaderWriter.write_pointer_info(file, file.tell())
-        # file.flush()
+        finally:
+            FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
-        # for criterion in criteria:
-        #     self.insert_int_index(table_name, position, criterion)
-        return file.tell()
-
-    def transaction_insert(self, table_name: str, values: dict, offset: int = None):
+    def delete(self, table_name: str, criterion: dict, update: bool = False):
         assert table_name is not None, 'Argument "table_name" is required!'
-        assert values is not None, 'Argument "values" is required!'
         assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
-        assert len(self.db_table_data[table_name]) == len(values), \
-            f'Expected {len(self.db_table_data[table_name])} values, got {len(values)}'
 
-        table_data = self.db_table_data[table_name]
-        insert_data = []
-        criteria = []
+        try:
+            c_key = None
+            for key, value in criterion.items():
+                c_key = key
 
-        for column_name in table_data:
-            assert column_name in values, f'Value for {column_name} is missing!'
-            assert isinstance(values[column_name], table_data[column_name][0].value), \
-                f'Received {type(values[column_name])}, expected {table_data[column_name].value}!'
+            with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
+                for row in self.search(table_name=table_name, criterion=criterion, line_numbers=True):
+                    if not row.get('pid'):
+                        file.seek(
+                            row.get('position') +
+                            row.get('meta_size') +
+                            MAX_META_CHARS * 2 -
+                            DELETED_CHARS * 2 -
+                            TRANSACTION_CHARS * 2 -
+                            MAX_PID_LENGTH * 2
+                        )
 
-            if os.path.isfile(f'{self.db_directory}/index_{column_name}_{table_name}.bin'):
-                criteria.append({column_name: values[column_name]})
+                        FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
+                        file.write(codecs.encode('--'.encode(), 'hex'))
+                        FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
 
-            insert_data.append(str(values[column_name]))
+                        if os.path.isfile(f'{self.db_directory}/index_{c_key}_{table_name}.bin'):
+                            self.delete_from_int_index(table_name, criterion)
 
-        encoded_line = VeskoReaderWriter.encode_line(insert_data, self.META_DATA_LENGTH)
+                        print('Deleted 1 row!')
+                        if update:
+                            return True
 
-        with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
-            if not offset:
-                offset = VeskoReaderWriter.read_pointer_info(file)
+        except Exception:
+            if FileLocker.check_lock(f'{self.db_directory}/table_{table_name}.bin'):
+                FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
+            raise
 
-            position = self.__transaction_insert(file, encoded_line, offset)
-            print('Inserted a row!')
-            return position, criteria
+    def update(self, table_name: str, criterion: dict, values: dict):
+        assert table_name is not None, 'Argument "table_name" is required!'
+        assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
+        assert values is not None, 'Argument "values" is required!'
 
-    def __search(self, table_name: str, criterion: dict, line_numbers=False, lock: bool = True):
+        try:
+            file = open(f'{self.db_directory}/table_{table_name}.bin', 'rb')
+            max_position = VeskoReaderWriter.read_pointer_info(file)
+
+            for row in self.search(table_name, criterion):
+                if row.get('position') > max_position:
+                    break
+
+                row_dict = self.db_table_data[table_name].copy()
+
+                for value in row_dict:
+                    row_dict[value] = self.db_table_data[table_name][value][0]\
+                                        .value(row.get('list_data')[self.db_table_data[table_name][value][1]])
+
+                for key, value in values.items():
+                    row_dict[key] = self.db_table_data[table_name][key][0].value(value)
+
+                position = self.insert(table_name, row_dict, update=True)
+
+                if position and self.delete(table_name, criterion, update=True):
+                    with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
+                        FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
+                        VeskoReaderWriter.write_pointer_info(file, position)  # TODO revert delete if this fails
+                        FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
+
+                    print('Updated 1 row!')
+
+        except Exception:
+            FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
+            raise
+
+    def search(self, table_name: str, criterion: dict, line_numbers=False):
+        assert table_name is not None, 'Argument "table_name" is required!'
+        assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
+        assert criterion is not None, 'Argument "criterion" is required!'
+
         c_key = None
         c_value = None
         for key, value in criterion.items():
@@ -210,118 +240,66 @@ class DbEngine:
         column_number = self.db_table_data[table_name][c_key][1]
 
         with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
-            if lock:
-                FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
-
             file.seek(MAX_POINTER_CHARS * 2)
+            for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH, column_number):
+                if row.get('error') and row.get('data') == c_value:
+                    raise row.get('error')
 
-            try:
-                for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH, column_number):
-                    if row[0].decode() == c_value:
-                        if line_numbers:
-                            yield row[1], row[2]
+                elif row.get('data') == c_value:
+                    if line_numbers:
+                        yield {
+                            'meta_size': row.get('meta_size'),
+                            'position': row.get('position'),
+                            'transaction_deleted': row.get('transaction_deleted'),
+                            'pid': row.get('pid')
+                        }
 
-                        else:
-                            pos = file.tell()
-                            file.seek(row[1] + row[2] + MAX_META_CHARS * 2, io.SEEK_SET)
-                            raw_data = file.read(sum(row[3]))
-                            data = codecs.decode(raw_data, 'hex')
-                            list_data = VeskoReaderWriter.raw_data_to_list(row[3], data)
-                            file.seek(pos)
+                    else:
+                        pos = file.tell()
+                        file.seek(row.get('position') + row.get('meta_size') + MAX_META_CHARS * 2, io.SEEK_SET)
+                        raw_data = file.read(sum(row.get('data_len')))
+                        data = codecs.decode(raw_data, 'hex').decode()
+                        list_data = VeskoReaderWriter.raw_data_to_list(row.get('data_len'), data)
+                        file.seek(pos)
 
-                            yield list_data
+                        yield {
+                            'list_data': list_data,
+                            'position': row.get('position')
+                        }
 
-            except Exception:
-                FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
-                raise
-
-            if lock:
-                FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
-
-    def select(self, table_name: str, criterion: dict = None, whence: int = None):
+    def select(self, table_name: str, criterion: dict = None):
         assert table_name is not None, 'Argument "table_name" is required!'
         assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
 
-        if not criterion:
-            with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
-                # FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
-                file.seek(MAX_POINTER_CHARS * 2)
-
-                try:
-                    for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH, whence):
-                        yield row[0]
-
-                except Exception:
-                    # FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
-                    raise
-
-                # FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
-
-        else:
-            c_key = None
-            for key, value in criterion.items():
-                c_key = key
-
-            if os.path.isfile(f'{self.db_directory}/index_{c_key}_{table_name}.bin'):
+        try:
+            if not criterion:
                 with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
-                    # FileLocker.lock(f'{self.db_directory}/table_{table_name}.bin')
+                    file.seek(MAX_POINTER_CHARS * 2)
+                    for row in VeskoReaderWriter.read_table_file(file, self.META_DATA_LENGTH):
+                        if row.get('error'):
+                            raise row.get('error')
 
-                    try:
-                        for offset in self.search_in_int_index(table_name, criterion):
+                        yield row.get('parsed_data')
+
+            else:
+                c_key = None
+                for key, value in criterion.items():
+                    c_key = key
+
+                if os.path.isfile(f'{self.db_directory}/index_{c_key}_{table_name}.bin'):
+                    with open(f'{self.db_directory}/table_{table_name}.bin', 'rb') as file:
+                        for offset in self.search_in_int_index(table_name, criterion):  # TODO search in transaction with index
                             result = VeskoReaderWriter.read_from_given_offset(file, offset, self.META_DATA_LENGTH)
 
                             if result is not None:
                                 yield result
 
-                    except Exception:
-                        # FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
-                        raise
+                else:
+                    for row in self.search(table_name, criterion):
+                        yield row.get('list_data')
 
-                    # FileLocker.unlock(f'{self.db_directory}/table_{table_name}.bin')
-
-            else:
-                for row in self.__search(table_name, criterion):
-                    yield row
-
-    def delete(self, table_name: str, criterion: dict, lock: bool = True):
-        assert table_name is not None, 'Argument "table_name" is required!'
-        assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
-
-        c_key = None
-        for key, value in criterion.items():
-            c_key = key
-
-        with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
-            for line in self.__search(table_name, criterion, True, lock):
-                file.seek(line[0] + line[1] + MAX_META_CHARS * 2 - DELETED_CHARS * 2 + 2)
-                file.write(codecs.encode('-'.encode(), 'hex'))
-
-                if os.path.isfile(f'{self.db_directory}/index_{c_key}_{table_name}.bin'):
-                    self.delete_from_int_index(table_name, criterion)
-
-                print('Deleted 1 row!')
-
-    def update(self, table_name: str, criterion: dict, values: dict):
-        assert table_name is not None, 'Argument "table_name" is required!'
-        assert table_name in self.db_table_data, f'Table "{table_name}" not found!'
-        assert values is not None, 'Argument "values" is required!'
-
-        for row in self.__search(table_name, criterion):
-            row_dict = self.db_table_data[table_name].copy()
-
-            for index, value in enumerate(row_dict):
-                row_dict[value] = self.db_table_data[table_name][value][0].value(row[index])
-
-            for key, value in values.items():
-                row_dict[key] = self.db_table_data[table_name][key][0].value(value)
-
-            position = self.insert(table_name, row_dict, False)
-
-            if position:
-                if self.delete(table_name, criterion, False):
-                    with open(f'{self.db_directory}/table_{table_name}.bin', 'rb+') as file:
-                        VeskoReaderWriter.write_pointer_info(file, position)
-                    print('Updated 1 row!')
+        except Exception:
+            raise
 
     def create_int_index(self, table_name: str, criterion: str):
         assert table_name is not None, 'Argument "table_name" is required!'
@@ -563,50 +541,8 @@ class DbEngine:
             print(e)
             raise
 
-    def transaction(self):
-        insert_queue = []
-        table_name = 'table'
-
-        FileLocker.lock(f'{self.db_directory}/{table_name}.bin')
-
-        try:
-            insert_data1 = {
-                'id': 500,
-                'name': 'Vesko',
-                'age': 19,
-                'description': 'Lud'
-            }
-
-            insert1 = self.transaction_insert(table_name, insert_data1)
-            whence = insert1[0]
-            insert_queue.append(insert1)
-
-            self.select(table_name, whence)  # select with custom whence(pointer for end of file)
-
-            # TODO add to INDEX AND DELETE flag for transaction
-
-            insert_data2 = {
-                'id': 1000,
-                'name': 'Vesko1',
-                'age': 20,
-                'description': 'Angl'
-            }
-
-            insert2 = self.transaction_insert(table_name, insert_data2, whence)
-            whence = insert2[0]
-            insert_queue.append(insert2)
-
-        except Exception:
-            FileLocker.lock(f'{self.db_directory}/{table_name}.bin')
-            raise
-
-        FileLocker.unlock(f'{self.db_directory}/{table_name}.bin')
-
-    def commit_transaction(self):
-        pass
-
-    def rollback_transaction(self):
-        pass
+    def begin_transaction(self):
+        return Transaction(self)
 
     # def read_index(self):
     #     with open(f'{self.db_directory}/index_id_table.bin', 'rb') as index_seq:
