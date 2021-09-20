@@ -1,0 +1,11 @@
+{
+  "name": "veselin-angelov-mini-backoffice",
+  "version": "1.0.0",
+  "dependencies": {
+    "@koa/router": "^10.1.1",
+    "bcrypt": "^5.0.1"
+  },
+  "devDependencies": {
+    "koa": "^2.13.1"
+  }
+}
