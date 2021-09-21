@@ -1,0 +1,27 @@
+<form action="" id="form" method="post">
+    <label for="username">Username:</label>
+    <input id="username" name="username" type="text"><br><br>
+    <label for="password">Password:</label>
+    <input id="password" name="password" type="password"><br><br>
+    <label for="repeat-password">Repeat Password:</label>
+    <input id="repeat-password" name="repeat-password" type="password"><br><br>
+    <input id="submitButton" type="submit" value="Submit">
+</form>
+
+<script>
+    $("#form").submit(function (e) {
+        e.preventDefault();
+
+        if ($('password') !== $('repeat-password')) {
+            alert('Passwords do not match!');
+        }
+
+        $.post("/register", {
+                "username": $('#username').val(),
+                "password": $('#password').val()
+            },
+            function (data, status) {
+                console.log("Data: " + data + "\nStatus: " + status);
+            });
+    });
+</script>
