@@ -8,4 +8,17 @@ const loginSchema = {
     additionalProperties: false
 };
 
-module.exports = loginSchema;
+const loginResponseSchema = {
+    type: "object",
+    properties: {
+        message: {type: "string", minLength: 1},
+        accessKey: {type: "string", minLength: 1}
+    },
+    required: ["message"],
+    additionalProperties: false
+}
+
+module.exports = {
+    loginSchema,
+    loginResponseSchema
+};

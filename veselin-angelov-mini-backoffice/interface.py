@@ -1,5 +1,6 @@
 import sys
 import json
+import time
 
 from main import DbEngine
 
@@ -35,10 +36,20 @@ elif command == 'insert':
     file = open(f'{engine.db_directory}/last_id.bin', 'r+')
     last_id = int(file.readline(1))
 
-    engine.insert(db_table, {'id': last_id + 1, 'username': credentials.get('username'), 'password': credentials.get('password')})
+    rows = engine.select(db_table, {'username': credentials.get('username')})
+    _exhausted = object()
 
-    file.seek(0)
-    file.write(str(last_id + 1))
+    if not next(rows, _exhausted) == _exhausted:
+        print('Username exists!')
+        exit(-1)
+
+    try:
+        engine.insert(db_table, {'id': last_id + 1, 'username': credentials.get('username'), 'password': credentials.get('password')})
+        file.seek(0)
+        file.write(str(last_id + 1))
+
+    except Exception:
+        print('Insert error!', file=sys.stderr)
 
 else:
     print('Invalid command!', file=sys.stderr)

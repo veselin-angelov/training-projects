@@ -13,7 +13,7 @@
         const credentials = {
             username: $('#username').val(),
             password: $('#password').val()
-        }
+        };
 
         $.ajax({
             type: "POST",
@@ -23,12 +23,14 @@
             dataType: "json",
             statusCode: {
                 200: (data) => {
-                    localStorage.setItem('accessToken', data.accessToken);
+                    // localStorage.setItem('accessToken', data.accessToken);
+                    document.cookie = `JWT_TOKEN=${data.accessToken}`;
+                    $(location).prop('href', '/');
                 },
                 401: (data) => {
                     alert(data.responseJSON.message);
                 }
             }
-        })
+        });
     });
 </script>

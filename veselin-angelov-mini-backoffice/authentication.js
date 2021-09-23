@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const Ajv = require("ajv");
 
-const loginSchema = require('./schemas.js');
+const { loginSchema, loginResponseSchema } = require('./schemas.js');
 
 const ajv = new Ajv();
 const authentication = new Router();
@@ -19,12 +19,7 @@ authentication.get('/login', async (ctx) => {
 authentication.post('/login', koaBody(), async ctx => {
     const valid = ajv.validate(loginSchema, ctx.request.body);
 
-    ctx.request.body.username = ctx.request.body.username.trim();
-    ctx.request.body.password = ctx.request.body.password.trim();
-
-    console.log(ctx.request.body);
-
-    if (!valid) {  // TODO validate json schema
+    if (!valid) {
         ctx.status = 400
         ctx.body = {
             message: "Bad request!",
@@ -32,12 +27,15 @@ authentication.post('/login', koaBody(), async ctx => {
         return;
     }
 
+    ctx.request.body.username = ctx.request.body.username.trim();
+    ctx.request.body.password = ctx.request.body.password.trim();
+
     const search = {'username': ctx.request.body.username};
-    ctx.pythonProcess = spawn('python3',
+    const pythonProcess = spawn('python3',
         ["../veselin-angelov-db-engine/interface.py", 'select', JSON.stringify(search)]);
 
     let data = "";
-    for await (const chunk of ctx.pythonProcess.stdout) {
+    for await (const chunk of pythonProcess.stdout) {
         data += chunk;
     }
 
@@ -45,19 +43,22 @@ authentication.post('/login', koaBody(), async ctx => {
         ctx.status = 401
         ctx.body = {
             message: "Incorrect credentials!",
-        }
+        };
         return;
     }
 
     const credentials = JSON.parse(data);
-
     const match = await bcrypt.compare(ctx.request.body.password, credentials.password);
 
     if (match) {
-        const token = jwt.sign({'id': credentials.id}, 'secret');
+        const token = jwt.sign({
+            'id': credentials.id,
+            'username': credentials.username
+        }, process.env.SECRET_KEY, {expiresIn: '1h'});
+
         ctx.status = 200
         ctx.body = {
-            message: "Login successfully!",
+            message: "Success!",
             accessToken: token,
         };
     }
@@ -73,23 +74,50 @@ authentication.get('/register', async (ctx) => {
     await ctx.render('register');
 })
 
-authentication.get('/register', async ctx => { // TODO
-    ctx.body = 'Register';
-    console.log('r');
+authentication.post('/register', koaBody(), async ctx => {
+    const valid = ajv.validate(loginSchema, ctx.request.body);
 
-    const plaintextPwd = 'lud';
+    if (!valid) {
+        ctx.status = 400
+        ctx.body = {
+            message: "Bad request!",
+        };
+        return;
+    }
 
-    const hashedPwd = await bcrypt.hash(plaintextPwd, saltRounds);
-    const credentials = {'username': 'tzetzo', 'password': hashedPwd};
+    ctx.request.body.username = ctx.request.body.username.trim();
+    ctx.request.body.password = ctx.request.body.password.trim();
 
-    console.log(credentials);
+    const hashedPwd = await bcrypt.hash(ctx.request.body.password, saltRounds);
+    const credentials = {'username': ctx.request.body.username, 'password': hashedPwd};
 
-    ctx.pythonProcess = spawn('python3',
+    const pythonProcess = spawn('python3',
         ["../veselin-angelov-db-engine/interface.py", 'insert', JSON.stringify(credentials)]);
 
-    ctx.pythonProcess.stdout.on('data', (data) => {
-        console.log(data.toString());
-    });
+    let data = "";
+    for await (const chunk of pythonProcess.stdout) {
+        data += chunk;
+    }
+
+    if (data === 'Inserted a row!\n') {
+        ctx.status = 201
+        ctx.body = {
+            message: "Success!",
+        };
+    }
+    else if (data === 'Username exists!\n') {
+        ctx.status = 409
+        ctx.body = {
+            message: "Username is taken!",
+        };
+    }
+    else {
+        console.log(data);
+        ctx.status = 400
+        ctx.body = {
+            message: "Something went wrong! Try again!",
+        };
+    }
 });
 
 module.exports = authentication;

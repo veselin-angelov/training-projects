@@ -12,16 +12,34 @@
     $("#form").submit(function (e) {
         e.preventDefault();
 
-        if ($('password') !== $('repeat-password')) {
+        if ($('#password').val() !== $('#repeat-password').val()) {
             alert('Passwords do not match!');
         }
+        else {
 
-        $.post("/register", {
-                "username": $('#username').val(),
-                "password": $('#password').val()
-            },
-            function (data, status) {
-                console.log("Data: " + data + "\nStatus: " + status);
+            const credentials = {
+                username: $('#username').val(),
+                password: $('#password').val()
+            };
+
+            $.ajax({
+                type: "POST",
+                url: "/register",
+                data: JSON.stringify(credentials),
+                contentType: "application/json; charset=utf-8",
+                dataType: "json",
+                statusCode: {
+                    201: (data) => {
+                        $(location).prop('href', '/login');
+                    },
+                    400: (data) => {
+                        alert(data.responseJSON.message);
+                    },
+                    409: (data) => {
+                        alert(data.responseJSON.message);
+                    }
+                }
             });
+        }
     });
 </script>
