@@ -5,11 +5,25 @@ const jwt = require('koa-jwt');
 
 backoffice.use(jwt({ secret: process.env.SECRET_KEY, key: 'jwtdata', cookie: 'JWT_TOKEN' }));
 
-backoffice.get('/', ctx => {
-    console.log(ctx.state.jwtdata);
-    // const result = this.pg.db.client.query_('SELECT now()');
-    // console.log('result:', result)
+backoffice.get('/', async ctx => {
     ctx.body = `Hello, ${ctx.state.jwtdata.username}`;
+    await ctx.render('home', {
+        jwtdata: ctx.state.jwtdata
+    });
+});
+
+backoffice.get('/reports/payments', async ctx => {
+    console.log(ctx.state.jwtdata);
+
+    // ctx.pool.query('SELECT * FROM payments;', (err, res) => {
+    //     if (err) {
+    //         throw err
+    //     }
+    //     console.log('data:', res.rows)
+    // })
+    await ctx.render('report', {
+        jwtdata: ctx.state.jwtdata
+    });
 });
 
 module.exports = backoffice;

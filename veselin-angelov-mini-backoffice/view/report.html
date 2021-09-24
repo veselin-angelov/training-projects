@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style>
+        .center {
+            margin-left: auto;
+            margin-right: auto;
+            max-width: 80vw;
+            margin-top: 20px;
+        }
+        .money {
+            text-align: end;
+        }
+
+
+        .cont {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .item1 {
+            flex-grow: 1;
+            margin-right: 10px;
+        }
+
+        .item2 {
+            flex-grow: 1;
+            margin-left: 10px;
+            margin-right: 10px;
+        }
+
+        .item3 {
+            flex-grow: 1;
+            margin-left: 10px;
+        }
+
+        .item4 {
+            flex-grow: 1;
+            margin-right: 10px;
+        }
+
+        .aggregate-checkbox {
+            margin: 0 !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="center">
+        <h2>Search query:</h2>
+        <form class='form' action="/reports/payments/#res" method="post">
+            <div class="cont">
+                <div class='form-group item1'>
+                    <label for='from-date'>From</label>
+                    <input class='form-control' id='from-date' name='from-date' type='date'/>
+                </div>
+                <div class='form-group item2'>
+                    <label for='to-date'>To</label>
+                    <input class='form-control' id='to-date' name='to-date' type='date'/>
+                </div>
+    <!--            <div class='form-group item3'>-->
+    <!--                <label for='aggregate'>Aggregate</label>-->
+    <!--                <br>-->
+    <!--                <select class="form-control" id='aggregate' name='aggregate'>-->
+    <!--                    {% if values is defined %}-->
+    <!--                    {% if values["aggregate"] %}-->
+    <!--                    <option value="{{ values["aggregate"] }}">{{ values["aggregate"] }}</option>-->
+    <!--                    <option value="">All</option>-->
+    <!--                    {% else %}-->
+    <!--                    <option value="">All</option>-->
+    <!--                    {% endif %}-->
+    <!--                    {% for aggregate in aggregates %}-->
+    <!--                    {% if aggregate != values["aggregate"] %}-->
+    <!--                    <option value="{{ aggregate }}">{{ aggregate }}</option>-->
+    <!--                    {% endif %}-->
+    <!--                    {% endfor %}-->
+    <!--                    {% else %}-->
+    <!--                    <option value="">All</option>-->
+    <!--                    {{ aggregates }}-->
+    <!--                    {% for aggregate in aggregates %}-->
+    <!--                    <option value="{{ aggregate }}">{{ aggregate }}</option>-->
+    <!--                    {% endfor %}-->
+    <!--                    {% endif %}-->
+    <!--                </select>-->
+    <!--            </div>-->
+            </div>
+            <div class="cont">
+                <div class='form-group item4'>
+                    <label for='subscription-name'>Subscription name</label>
+                    <input class='form-control' id='subscription-name' name='subscription-name' type='text' placeholder='Subscription name'/>
+                </div>
+    <!--            <div class="checkbox">-->
+    <!--                <input class="form-check-input aggregate-checkbox" type="checkbox" {{ 'checked' if values and values["aggregate_parking_space"] }} id="aggregate-parking-space" name="aggregate-parking-space">-->
+    <!--                <label class="form-check-label" for="aggregate-parking-space" id="aggregate-parking-space-label">Aggregate on space</label>-->
+    <!--            </div>-->
+            </div>
+            <div class="cont">
+                <div class='form-group item4'>
+                    <label for='user'>User</label>
+                    <input class='form-control' id='user' name='username' type='text' placeholder='Username'/>
+                </div>
+    <!--            <div class="checkbox">-->
+    <!--                <input class="form-check-input aggregate-checkbox" type="checkbox" {{ 'checked' if values and values["aggregate_user"] }} id="aggregate-user" name="aggregate-user">-->
+    <!--                <label class="form-check-label" for="aggregate-user" id="aggregate-user-label">Aggregate on user</label>-->
+    <!--            </div>-->
+            </div>
+            <div class="cont">
+                <div class='form-group item4'>
+                    <label for='payment-method'>Payment method</label>
+                    <br>
+                    <select class="form-control" id='payment-method' name='payment-method'>
+                        <option value="paypal">PayPal</option>
+                        <option value="visa">VISA</option>
+                        <option value="mastercard">MasterCard</option>
+                    </select>
+                </div>
+    <!--            <div class="checkbox">-->
+    <!--                <input class="form-check-input aggregate-checkbox" type="checkbox" {{ 'checked' if values and values["aggregate_status"] }} id="aggregate-status" name="aggregate-status">-->
+    <!--                <label class="form-check-label" for="aggregate-status" id="aggregate-status-label">Aggregate on status</label>-->
+    <!--            </div>-->
+            </div>
+
+            <div class="cont">
+                <div class='form-group item4'>
+                    <label for='payment-status'>Payment status</label>
+                    <br>
+                    <select class="form-control" id='payment-status' name='payment-status'>
+
+                    </select>
+                </div>
+                <!--            <div class="checkbox">-->
+                <!--                <input class="form-check-input aggregate-checkbox" type="checkbox" {{ 'checked' if values and values["aggregate_status"] }} id="aggregate-status" name="aggregate-status">-->
+                <!--                <label class="form-check-label" for="aggregate-status" id="aggregate-status-label">Aggregate on status</label>-->
+                <!--            </div>-->
+            </div>
+
+            <div class="cont">
+                <div class='form-group item1'>
+                    <label for='payment-amount-from'>Payment amount from</label>
+                    <input class='form-control' id='payment-amount-from' name='payment-amount-from' type='number' placeholder='Amount' step="any"/>
+                </div>
+                <div class='form-group item3'>
+                    <label for='payment-amount-to'>Payment amount to</label>
+                    <input class='form-control' id='payment-amount-to' name='payment-amount-to' type='number' placeholder='Amount' step="any"/>
+                </div>
+            </div>
+            <input type='submit' value='Submit' class='btn btn-primary' />
+        </form>
+    </div>
+
+    <table class="center table table-striped table-bordered table-hover">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Date</th>
+                <th>Subscription name</th>
+                <th>Username</th>
+                <th>Payment method</th>
+                <th>Status</th>
+                <th>Payment amount</th>
+            </tr>
+        </thead>
+        <tbody class="table-body">
+        </tbody>
+    </table>
+    <script>
+        $.ajax({
+            type: "GET",
+            url: "/api/payments",
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            success: (data) => {
+                // console.log(data);
+                const tbody = $(".table-body");
+                console.log(tbody);
+
+                for (const row of data) {
+                    let trow = `<tr>
+                                    <td>${row.id}</td>
+                                    <td>${row.date}</td>
+                                    <td>${row.subscription_name}</td>
+                                    <td>${row.username}</td>
+                                    <td>${row.payment_method}</td>
+                                    <td>${row.status}</td>
+                                    <td class="money">$${row.amount}</td>
+                                </tr>`;
+                    tbody.append(trow);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

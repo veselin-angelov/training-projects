@@ -1,15 +1,15 @@
 const Koa = require('koa');
-const koaPg = require('koa-pg');
 const render = require('koa-ejs');
 const path = require('path');
-require('dotenv').config();
+const { Pool } = require('pg')
+const TokenExpiredError = require("jsonwebtoken/lib/TokenExpiredError");
 
+require('dotenv').config();
 const auth = require('./authentication.js')
 const backoffice = require('./backoffice.js')
+const api = require('./api.js')
 
 const app = new Koa();
-
-// app.use(koaPg('postgres://postgres:password@localhost:5432/minibackoffice'));
 
 render(app, {
     root: path.join(__dirname, 'view'),
@@ -21,21 +21,35 @@ render(app, {
 
 
 app.use(async (ctx, next) => {
+    ctx.pool = new Pool({
+        user: 'postgres',
+        host: 'localhost',
+        database: 'minibackoffice',
+        password: 'password',
+        port: 5432,
+    });
     try {
         await next();
     }
     catch(err) {
-        ctx.status = err.status || 500;
-        ctx.body = {
-            error: err.originalError ? err.originalError.message : err.message
-        };
+        if (err.status === 401) {
+            ctx.redirect('/login');
+        }
+        else {
+            ctx.status = err.status || 500;
+            ctx.body = {
+                error: err.originalError ? err.originalError.message : err.message
+            };
+        }
     }
     console.log(`${new Date().toISOString()} ${ctx.ip} ${ctx.method} ${ctx.url} ${ctx.status}`);
 });
 
 app.use(auth.routes());
 app.use(backoffice.routes());
+app.use(api.routes());
 app.use(auth.allowedMethods());
 app.use(backoffice.allowedMethods());
+app.use(api.allowedMethods());
 
 app.listen(3000);
