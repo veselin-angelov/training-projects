@@ -1,8 +1,8 @@
 const Koa = require('koa');
 const render = require('koa-ejs');
 const path = require('path');
-const { Pool } = require('pg')
-const TokenExpiredError = require("jsonwebtoken/lib/TokenExpiredError");
+const pg = require("pg");
+const { Pool } = require('pg');
 
 require('dotenv').config();
 const auth = require('./authentication.js')
@@ -19,6 +19,15 @@ render(app, {
     debug: false
 });
 
+// pg.types.setTypeParser(1184, function(stringValue) {
+//     const match = stringValue.match(new RegExp(/\+\d\d/));
+//
+//     if (match) {
+//         const hours = parseInt(match[0]);
+//         return new Date(stringValue).addHours(hours);
+//     }
+//     return new Date(stringValue);
+// });
 
 app.use(async (ctx, next) => {
     ctx.pool = new Pool({
@@ -33,7 +42,11 @@ app.use(async (ctx, next) => {
     }
     catch(err) {
         if (err.status === 401) {
+            // ctx.status = 301;
             ctx.redirect('/login');
+            // ctx.body = {
+            //     redirect: true
+            // };
         }
         else {
             ctx.status = err.status || 500;

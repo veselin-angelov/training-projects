@@ -42,15 +42,16 @@
             margin-right: 10px;
         }
 
-        .aggregate-checkbox {
-            margin: 0 !important;
+        .checkbox {
+            margin-left: 20px;
+            margin-top: 12px;
         }
     </style>
 </head>
 <body>
     <div class="center">
         <h2>Search query:</h2>
-        <form class='form' action="/reports/payments/#res" method="post">
+        <form id='form' action="/reports/payments/#res" method="post">
             <div class="cont">
                 <div class='form-group item1'>
                     <label for='from-date'>From</label>
@@ -60,66 +61,46 @@
                     <label for='to-date'>To</label>
                     <input class='form-control' id='to-date' name='to-date' type='date'/>
                 </div>
-    <!--            <div class='form-group item3'>-->
-    <!--                <label for='aggregate'>Aggregate</label>-->
-    <!--                <br>-->
-    <!--                <select class="form-control" id='aggregate' name='aggregate'>-->
-    <!--                    {% if values is defined %}-->
-    <!--                    {% if values["aggregate"] %}-->
-    <!--                    <option value="{{ values["aggregate"] }}">{{ values["aggregate"] }}</option>-->
-    <!--                    <option value="">All</option>-->
-    <!--                    {% else %}-->
-    <!--                    <option value="">All</option>-->
-    <!--                    {% endif %}-->
-    <!--                    {% for aggregate in aggregates %}-->
-    <!--                    {% if aggregate != values["aggregate"] %}-->
-    <!--                    <option value="{{ aggregate }}">{{ aggregate }}</option>-->
-    <!--                    {% endif %}-->
-    <!--                    {% endfor %}-->
-    <!--                    {% else %}-->
-    <!--                    <option value="">All</option>-->
-    <!--                    {{ aggregates }}-->
-    <!--                    {% for aggregate in aggregates %}-->
-    <!--                    <option value="{{ aggregate }}">{{ aggregate }}</option>-->
-    <!--                    {% endfor %}-->
-    <!--                    {% endif %}-->
-    <!--                </select>-->
-    <!--            </div>-->
+                <div class='form-group item3'>
+                    <label for='aggregate-date'>Aggregate</label>
+                    <br>
+                    <select class="form-control" id='aggregate-date' name='aggregate-date'>
+                        <option value="">All</option>
+                    </select>
+                </div>
             </div>
             <div class="cont">
                 <div class='form-group item4'>
                     <label for='subscription-name'>Subscription name</label>
                     <input class='form-control' id='subscription-name' name='subscription-name' type='text' placeholder='Subscription name'/>
                 </div>
-    <!--            <div class="checkbox">-->
-    <!--                <input class="form-check-input aggregate-checkbox" type="checkbox" {{ 'checked' if values and values["aggregate_parking_space"] }} id="aggregate-parking-space" name="aggregate-parking-space">-->
-    <!--                <label class="form-check-label" for="aggregate-parking-space" id="aggregate-parking-space-label">Aggregate on space</label>-->
-    <!--            </div>-->
+                <div class="checkbox">
+                    <input class="form-check-input aggregate-checkbox" type="checkbox" id="aggregate-subscription-name" name="aggregate-subscription-name">
+                    <label class="form-check-label" for="aggregate-subscription-name" id="aggregate-subscription-name-label">Aggregate</label>
+                </div>
             </div>
             <div class="cont">
                 <div class='form-group item4'>
                     <label for='user'>User</label>
                     <input class='form-control' id='user' name='username' type='text' placeholder='Username'/>
                 </div>
-    <!--            <div class="checkbox">-->
-    <!--                <input class="form-check-input aggregate-checkbox" type="checkbox" {{ 'checked' if values and values["aggregate_user"] }} id="aggregate-user" name="aggregate-user">-->
-    <!--                <label class="form-check-label" for="aggregate-user" id="aggregate-user-label">Aggregate on user</label>-->
-    <!--            </div>-->
+                <div class="checkbox">
+                    <input class="form-check-input aggregate-checkbox" type="checkbox" id="aggregate-user" name="aggregate-user">
+                    <label class="form-check-label" for="aggregate-user" id="aggregate-user-label">Aggregate</label>
+                </div>
             </div>
             <div class="cont">
                 <div class='form-group item4'>
                     <label for='payment-method'>Payment method</label>
                     <br>
                     <select class="form-control" id='payment-method' name='payment-method'>
-                        <option value="paypal">PayPal</option>
-                        <option value="visa">VISA</option>
-                        <option value="mastercard">MasterCard</option>
+                        <option value="">All</option>
                     </select>
                 </div>
-    <!--            <div class="checkbox">-->
-    <!--                <input class="form-check-input aggregate-checkbox" type="checkbox" {{ 'checked' if values and values["aggregate_status"] }} id="aggregate-status" name="aggregate-status">-->
-    <!--                <label class="form-check-label" for="aggregate-status" id="aggregate-status-label">Aggregate on status</label>-->
-    <!--            </div>-->
+                <div class="checkbox">
+                    <input class="form-check-input aggregate-checkbox" type="checkbox" id="aggregate-payment-method" name="aggregate-payment-method">
+                    <label class="form-check-label" for="aggregate-payment-method" id="aggregate-payment-method-label">Aggregate</label>
+                </div>
             </div>
 
             <div class="cont">
@@ -127,13 +108,13 @@
                     <label for='payment-status'>Payment status</label>
                     <br>
                     <select class="form-control" id='payment-status' name='payment-status'>
-
+                        <option value="">All</option>
                     </select>
                 </div>
-                <!--            <div class="checkbox">-->
-                <!--                <input class="form-check-input aggregate-checkbox" type="checkbox" {{ 'checked' if values and values["aggregate_status"] }} id="aggregate-status" name="aggregate-status">-->
-                <!--                <label class="form-check-label" for="aggregate-status" id="aggregate-status-label">Aggregate on status</label>-->
-                <!--            </div>-->
+                <div class="checkbox">
+                    <input class="form-check-input aggregate-checkbox" type="checkbox" id="aggregate-payment-status" name="aggregate-payment-status">
+                    <label class="form-check-label" for="aggregate-payment-status" id="aggregate-payment-status-label">Aggregate</label>
+                </div>
             </div>
 
             <div class="cont">
@@ -148,47 +129,175 @@
             </div>
             <input type='submit' value='Submit' class='btn btn-primary' />
         </form>
-    </div>
 
-    <table class="center table table-striped table-bordered table-hover">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Date</th>
-                <th>Subscription name</th>
-                <th>Username</th>
-                <th>Payment method</th>
-                <th>Status</th>
-                <th>Payment amount</th>
-            </tr>
-        </thead>
-        <tbody class="table-body">
-        </tbody>
-    </table>
+        <div id="results">
+            <br>
+            <h2>Results: </h2>
+            <div class="cont">
+                <h3 id="rows-count"></h3>
+            </div>
+
+            <table class="center table table-striped table-bordered table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Date</th>
+                        <th>Subscription name</th>
+                        <th>Username</th>
+                        <th>Payment method</th>
+                        <th>Status</th>
+                        <th>Payment amount</th>
+                    </tr>
+                </thead>
+                <tbody class="table-body">
+                </tbody>
+            </table>
+        </div>
+    </div>
     <script>
+        let createTRow = (id, date, subName, username, paymentMethod, status, money) =>
+            `<tr>
+                <td>${id}</td>
+                <td>${date}</td>
+                <td>${subName}</td>
+                <td>${username}</td>
+                <td>${paymentMethod}</td>
+                <td>${status}</td>
+                <td class="money">$${money}</td>
+            </tr>`;
+
+        $("#results").hide();
+
         $.ajax({
             type: "GET",
-            url: "/api/payments",
+            url: "/api/statuses",
             contentType: "application/json; charset=utf-8",
             dataType: "json",
             success: (data) => {
-                // console.log(data);
-                const tbody = $(".table-body");
-                console.log(tbody);
+                const formStatuses = $("#payment-status");
 
-                for (const row of data) {
-                    let trow = `<tr>
-                                    <td>${row.id}</td>
-                                    <td>${row.date}</td>
-                                    <td>${row.subscription_name}</td>
-                                    <td>${row.username}</td>
-                                    <td>${row.payment_method}</td>
-                                    <td>${row.status}</td>
-                                    <td class="money">$${row.amount}</td>
-                                </tr>`;
-                    tbody.append(trow);
+                for (const status of data) {
+                    let fStatus = `<option value="${status}">${status}</option>`;
+                    formStatuses.append(fStatus);
                 }
             }
+        });
+
+        $.ajax({
+            type: "GET",
+            url: "/api/payment-methods",
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            success: (data) => {
+                const formMethods = $("#payment-method");
+
+                for (const method of data) {
+                    let fMethod = `<option value="${method}">${method}</option>`;
+                    formMethods.append(fMethod);
+                }
+            }
+        });
+
+        $.ajax({
+            type: "GET",
+            url: "/api/date-aggregates",
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            success: (data) => {
+                const aggregates = $("#aggregate-date");
+
+                for (const aggregate of data) {
+                    let fStatus = `<option value="${aggregate}">${aggregate}</option>`;
+                    aggregates.append(fStatus);
+                }
+            }
+        });
+
+        $("#form").submit(function (e) {
+            e.preventDefault();
+            $(".table-body > tr").remove();
+            $("#results").show();
+
+            const formData = {
+                filters: {
+                    fromDate: $('#from-date').val(),
+                    toDate: $('#to-date').val(),
+                    subscriptionName: $('#subscription-name').val(),
+                    user: $('#user').val(),
+                    paymentMethod: $('#payment-method').val(),
+                    paymentStatus: $('#payment-status').val(),
+                    paymentAmountFrom: $('#payment-amount-from').val(),
+                    paymentAmountTo: $('#payment-amount-to').val(),
+                },
+                aggregates: {
+                    aggregateDate: $('#aggregate-date').val(),
+                    aggregateSubscription: $('#aggregate-subscription-name').is(':checked'),
+                    aggregateUser: $('#aggregate-user').is(':checked'),
+                    aggregatePaymentMethod: $('#aggregate-payment-method').is(':checked'),
+                    aggregatePaymentStatus: $('#aggregate-payment-status').is(':checked'),
+                }
+            };
+
+            // console.log(formData);
+
+            $.ajax({
+                type: "POST",
+                url: "/api/payments",
+                data: JSON.stringify(formData),
+                contentType: "application/json; charset=utf-8",
+                dataType: "json",
+                statusCode: {
+                    200: (data) => {
+                        console.log(data);
+                        console.log(formData);
+                        const tbody = $(".table-body");
+
+                        $("#rows-count").html(`${data.rowsCount} rows`);
+
+                        for (const row of data.rowsData) {
+
+                            if (formData.aggregates.aggregateDate === '' && row.date) {
+                                row.date = new Date(row.date).toLocaleString('en-GB');
+                            }
+
+                            if (!row.id) {
+                                row.id = '-';
+                            }
+                            if (!row.date) {
+                                row.date = '-';
+                            }
+                            if (!row.subscription_name) {
+                                row.subscription_name = '-';
+                            }
+                            if (!row.username) {
+                                row.username = '-';
+                            }
+                            if (!row.payment_method) {
+                                row.payment_method = '-';
+                            }
+                            if (!row.status) {
+                                row.status = '-';
+                            }
+                            if (!row.amount) {
+                                row.amount = '-';
+                            }
+
+                            let trow = createTRow(row.id, row.date, row.subscription_name, row.username, row.payment_method, row.status, row.amount);
+
+                            tbody.append(trow);
+                        }
+
+                        tbody.append(`<tr>
+                            <td colspan="6"></td>
+                            <td class="money">$${data.totalAmount}</td>
+                        </tr>`);
+                    },
+                    // 301: (url) => {
+                    //     console.log('asssssssss');
+                    //     console.log(url);
+                    // }
+                }
+            });
         });
     </script>
 </body>
