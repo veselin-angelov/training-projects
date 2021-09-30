@@ -47,6 +47,8 @@
             margin-top: 12px;
         }
     </style>
+    <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css">
+    <script src="https://code.jquery.com/ui/1.13.0-rc.2/jquery-ui.min.js" integrity="sha256-RQLbEU539dpygNMsBGZlplus6CkitaLy0btTCHcULpI=" crossorigin="anonymous"></script>
 </head>
 <body>
     <div class="center">
@@ -55,38 +57,42 @@
             <div class="cont">
                 <div class='form-group item1'>
                     <label for='from-date'>From</label>
-                    <input class='form-control' id='from-date' name='from-date' type='date'/>
+                    <input class='form-control' id='from-date' name='from-date' type='text' autocomplete="off"/>
                 </div>
                 <div class='form-group item2'>
                     <label for='to-date'>To</label>
-                    <input class='form-control' id='to-date' name='to-date' type='date'/>
+                    <input class='form-control' id='to-date' name='to-date' type='text' autocomplete="off"/>
                 </div>
-                <div class='form-group item3'>
+                <div class='form-group item2'>
                     <label for='aggregate-date'>Aggregate</label>
                     <br>
                     <select class="form-control" id='aggregate-date' name='aggregate-date'>
                         <option value="">All</option>
                     </select>
                 </div>
+                <div class="checkbox">
+                    <input class="form-check-input exclude-checkbox" type="checkbox" id="exclude-date" name="exclude-date">
+                    <label class="form-check-label" for="exclude-date" id="exclude-date-label">Exclude</label>
+                </div>
             </div>
             <div class="cont">
                 <div class='form-group item4'>
                     <label for='subscription-name'>Subscription name</label>
-                    <input class='form-control' id='subscription-name' name='subscription-name' type='text' placeholder='Subscription name'/>
+                    <input class='form-control' id='subscription-name' name='subscription-name' type='text'/>
                 </div>
                 <div class="checkbox">
-                    <input class="form-check-input aggregate-checkbox" type="checkbox" id="aggregate-subscription-name" name="aggregate-subscription-name">
-                    <label class="form-check-label" for="aggregate-subscription-name" id="aggregate-subscription-name-label">Aggregate</label>
+                    <input class="form-check-input exclude-checkbox" type="checkbox" id="exclude-subscription-name" name="exclude-subscription-name">
+                    <label class="form-check-label" for="exclude-subscription-name" id="exclude-subscription-name-label">Exclude</label>
                 </div>
             </div>
             <div class="cont">
                 <div class='form-group item4'>
                     <label for='user'>User</label>
-                    <input class='form-control' id='user' name='username' type='text' placeholder='Username'/>
+                    <input class='form-control' id='user' name='username' type='text'/>
                 </div>
                 <div class="checkbox">
-                    <input class="form-check-input aggregate-checkbox" type="checkbox" id="aggregate-user" name="aggregate-user">
-                    <label class="form-check-label" for="aggregate-user" id="aggregate-user-label">Aggregate</label>
+                    <input class="form-check-input exclude-checkbox" type="checkbox" id="exclude-user" name="exclude-user">
+                    <label class="form-check-label" for="exclude-user" id="exclude-user-label">Exclude</label>
                 </div>
             </div>
             <div class="cont">
@@ -98,8 +104,8 @@
                     </select>
                 </div>
                 <div class="checkbox">
-                    <input class="form-check-input aggregate-checkbox" type="checkbox" id="aggregate-payment-method" name="aggregate-payment-method">
-                    <label class="form-check-label" for="aggregate-payment-method" id="aggregate-payment-method-label">Aggregate</label>
+                    <input class="form-check-input exclude-checkbox" type="checkbox" id="exclude-payment-method" name="exclude-payment-method">
+                    <label class="form-check-label" for="exclude-payment-method" id="exclude-payment-method-label">Exclude</label>
                 </div>
             </div>
 
@@ -112,19 +118,19 @@
                     </select>
                 </div>
                 <div class="checkbox">
-                    <input class="form-check-input aggregate-checkbox" type="checkbox" id="aggregate-payment-status" name="aggregate-payment-status">
-                    <label class="form-check-label" for="aggregate-payment-status" id="aggregate-payment-status-label">Aggregate</label>
+                    <input class="form-check-input exclude-checkbox" type="checkbox" id="exclude-payment-status" name="exclude-payment-status">
+                    <label class="form-check-label" for="exclude-payment-status" id="exclude-payment-status-label">Exclude</label>
                 </div>
             </div>
 
             <div class="cont">
                 <div class='form-group item1'>
                     <label for='payment-amount-from'>Payment amount from</label>
-                    <input class='form-control' id='payment-amount-from' name='payment-amount-from' type='number' placeholder='Amount' step="any"/>
+                    <input class='form-control' id='payment-amount-from' name='payment-amount-from' type='number' placeholder='$' step="any"/>
                 </div>
                 <div class='form-group item3'>
                     <label for='payment-amount-to'>Payment amount to</label>
-                    <input class='form-control' id='payment-amount-to' name='payment-amount-to' type='number' placeholder='Amount' step="any"/>
+                    <input class='form-control' id='payment-amount-to' name='payment-amount-to' type='number' placeholder='$' step="any"/>
                 </div>
             </div>
             <input type='submit' value='Submit' class='btn btn-primary' />
@@ -155,6 +161,44 @@
         </div>
     </div>
     <script>
+        $(function() {
+            const dateFormat = "dd-mm-yy";
+            const from = $( "#from-date" )
+                .datepicker({
+                    // defaultDate: "+1w",
+                    changeMonth: true,
+                    numberOfMonths: 2,
+                    dateFormat: "dd-mm-yy"
+                })
+                .on( "change", function() {
+                    console.log(getDate( this ));
+                    to.datepicker( "option", "minDate", getDate( this ) );
+                });
+            const to = $( "#to-date" )
+                .datepicker({
+                    // defaultDate: "+1w",
+                    changeMonth: true,
+                    numberOfMonths: 2,
+                    dateFormat: "dd-mm-yy"
+                })
+                .on( "change", function() {
+                    from.datepicker( "option", "maxDate", getDate( this ) );
+                });
+
+            function getDate( element ) {
+                let date;
+                console.log(element.value);
+                try {
+                    date = $.datepicker.parseDate( dateFormat, element.value );
+                } catch( error ) {
+                    console.log(error);
+                    date = null;
+                }
+
+                return date;
+            }
+        });
+
         let createTRow = (id, date, subName, username, paymentMethod, status, money) =>
             `<tr>
                 <td>${id}</td>
@@ -216,12 +260,11 @@
         $("#form").submit(function (e) {
             e.preventDefault();
             $(".table-body > tr").remove();
-            $("#results").show();
 
             const formData = {
                 filters: {
-                    fromDate: $('#from-date').val(),
-                    toDate: $('#to-date').val(),
+                    fromDate: '',
+                    toDate: '',
                     subscriptionName: $('#subscription-name').val(),
                     user: $('#user').val(),
                     paymentMethod: $('#payment-method').val(),
@@ -231,12 +274,22 @@
                 },
                 aggregates: {
                     aggregateDate: $('#aggregate-date').val(),
-                    aggregateSubscription: $('#aggregate-subscription-name').is(':checked'),
-                    aggregateUser: $('#aggregate-user').is(':checked'),
-                    aggregatePaymentMethod: $('#aggregate-payment-method').is(':checked'),
-                    aggregatePaymentStatus: $('#aggregate-payment-status').is(':checked'),
+                    excludeDate: $('#exclude-date').is(':checked'),
+                    excludeSubscription: $('#exclude-subscription-name').is(':checked'),
+                    excludeUser: $('#exclude-user').is(':checked'),
+                    excludePaymentMethod: $('#exclude-payment-method').is(':checked'),
+                    excludePaymentStatus: $('#exclude-payment-status').is(':checked'),
                 }
             };
+            const fromDate = $('#from-date');
+            const toDate = $('#to-date');
+
+            if (fromDate.val()) {
+                formData.filters.fromDate = $.datepicker.parseDate( 'dd-mm-yy', fromDate.val() ).toISOString();
+            }
+            if (toDate.val()) {
+                formData.filters.fromDate = $.datepicker.parseDate( 'dd-mm-yy', toDate.val() ).toISOString();
+            }
 
             // console.log(formData);
 
@@ -252,34 +305,13 @@
                         console.log(formData);
                         const tbody = $(".table-body");
 
+                        $("#results").show();
                         $("#rows-count").html(`${data.rowsCount} rows`);
 
                         for (const row of data.rowsData) {
 
-                            if (formData.aggregates.aggregateDate === '' && row.date) {
+                            if (formData.aggregates.aggregateDate === '' && row.date && !formData.aggregates.excludeDate) {
                                 row.date = new Date(row.date).toLocaleString('en-GB');
-                            }
-
-                            if (!row.id) {
-                                row.id = '-';
-                            }
-                            if (!row.date) {
-                                row.date = '-';
-                            }
-                            if (!row.subscription_name) {
-                                row.subscription_name = '-';
-                            }
-                            if (!row.username) {
-                                row.username = '-';
-                            }
-                            if (!row.payment_method) {
-                                row.payment_method = '-';
-                            }
-                            if (!row.status) {
-                                row.status = '-';
-                            }
-                            if (!row.amount) {
-                                row.amount = '-';
                             }
 
                             let trow = createTRow(row.id, row.date, row.subscription_name, row.username, row.payment_method, row.status, row.amount);
@@ -292,10 +324,9 @@
                             <td class="money">$${data.totalAmount}</td>
                         </tr>`);
                     },
-                    // 301: (url) => {
-                    //     console.log('asssssssss');
-                    //     console.log(url);
-                    // }
+                    302: (data) => {
+                        window.location.href = data.responseJSON.redirect;
+                    }
                 }
             });
         });

@@ -1,7 +1,7 @@
 const Koa = require('koa');
 const render = require('koa-ejs');
 const path = require('path');
-const pg = require("pg");
+// const pg = require("pg");
 const { Pool } = require('pg');
 
 require('dotenv').config();
@@ -41,19 +41,10 @@ app.use(async (ctx, next) => {
         await next();
     }
     catch(err) {
-        if (err.status === 401) {
-            // ctx.status = 301;
-            ctx.redirect('/login');
-            // ctx.body = {
-            //     redirect: true
-            // };
-        }
-        else {
-            ctx.status = err.status || 500;
-            ctx.body = {
-                error: err.originalError ? err.originalError.message : err.message
-            };
-        }
+        ctx.status = err.status || 500;
+        ctx.body = {
+            error: err.originalError ? err.originalError.message : err.message
+        };
     }
     console.log(`${new Date().toISOString()} ${ctx.ip} ${ctx.method} ${ctx.url} ${ctx.status}`);
 });

@@ -22,6 +22,23 @@ function checkJSONElementsNotNull (object) {
     }
 }
 
+api.use(async (ctx, next) => {
+    try {
+        await next();
+    }
+    catch(err) {
+        if (err.status === 401) {
+            ctx.status = 302;
+            ctx.body = {
+                redirect: '/login'
+            };
+        }
+        else {
+            throw err;
+        }
+    }
+});
+
 api.use(jwt({ secret: process.env.SECRET_KEY, key: 'jwtdata', cookie: 'JWT_TOKEN' }));
 
 api.get('/api/statuses', async ctx=> {
@@ -37,124 +54,200 @@ api.get('/api/date-aggregates', async ctx=> {
 });
 
 api.post('/api/payments', koaBody(), async ctx=> {
+    // let reportSchema = {
+    //     filters: {
+    //         fromDate: {
+    //             type: 'date',
+    //             value: ''
+    //         },
+    //         toDate: {
+    //             type: 'date',
+    //             value: '',
+    //             extraDays: 1
+    //         },
+    //         subscriptionName: {
+    //             type: 'string',
+    //             value: ''
+    //         },
+    //         user: {
+    //             type: 'string',
+    //             value: ''
+    //         },
+    //         paymentMethod: {
+    //             type: 'string',
+    //             value: ''
+    //         },
+    //         paymentStatus: {
+    //             type: 'string',
+    //             value: ''
+    //         },
+    //         paymentAmountFrom: {
+    //             type: 'string',
+    //             value: ''
+    //         },
+    //         paymentAmountTo: {
+    //             type: 'string',
+    //             value: ''
+    //         },
+    //     },
+    //     aggregates: {
+    //         excludeDate: {
+    //             type: 'boolean',
+    //             value: false,
+    //             groups: {
+    //                 aggregateDate: {
+    //                     type: 'string',
+    //                     value: ''
+    //                 }
+    //             }
+    //         },
+    //         excludeSubscription: {
+    //             type: 'boolean',
+    //             value: false
+    //         },
+    //         excludeUser: {
+    //             type: 'boolean',
+    //             value: false
+    //         },
+    //         excludePaymentMethod: {
+    //             type: 'boolean',
+    //             value: false
+    //         },
+    //         excludePaymentStatus: {
+    //             type: 'boolean',
+    //             value: false
+    //         },
+    //     }
+    // }
+    //
+    //
+    // console.log(ctx.body);
 
-    console.log(ctx.request.body);
-
+    // for (const element in ctx.body) {
+    //     for (const key in ctx.body[element]) {
+    //         console.log(key);
+    //         console.log(reportSchema[element][key]);
+    //         console.log(ctx.body[element][key]);
+    //         reportSchema[element][key].value = ctx.body[element][key];
+    //     }
+    // }
+    //
+    // console.log(reportSchema);
     ctx.body = ctx.request.body;
 
-    let createQuery = (select) =>
-        `SELECT ${select}
-            FROM payments p
-            JOIN subscriptions s on p.subscription_id = s.id
-            JOIN payment_methods pm on pm.id = p.payment_method_id
-            JOIN users u on p.user_id = u.id`;
 
-    let sum_q = `SELECT SUM(p.amount) AS total, COUNT(*) AS count
-            FROM payments p
-            JOIN subscriptions s on p.subscription_id = s.id
-            JOIN payment_methods pm on pm.id = p.payment_method_id
-            JOIN users u on p.user_id = u.id`;
+    let createQuery = (select, filter, group, order) => `
+        SELECT SUM(p.amount) AS amount, ${select}
+        FROM payments p
+        JOIN subscriptions s on p.subscription_id = s.id
+        JOIN payment_methods pm on pm.id = p.payment_method_id
+        JOIN users u on p.user_id = u.id
+        ${filter}
+        GROUP BY ${group}
+        ORDER BY ${order};
+    `;
 
-    let q;
-    let groupParameters = [];
-    let orderParameters = [];
+    let createSumQuery = (filter) => `
+        SELECT SUM(p.amount) AS total
+        FROM payments p
+        JOIN subscriptions s on p.subscription_id = s.id
+        JOIN payment_methods pm on pm.id = p.payment_method_id
+        JOIN users u on p.user_id = u.id
+        ${filter}
+    `;
 
-    if (checkJSONElementsNotNull(ctx.body.aggregates)) {
-        let aggregateParameters = [];
-
-        if (ctx.body.aggregates.aggregateDate) {
-            groupParameters.push(aggregateParameters.length + 1);
-            orderParameters.push(aggregateParameters.length + 1);
-
-            if (ctx.body.aggregates.aggregateDate === 'Daily') {
-                aggregateParameters.push(`to_char(date_trunc('day', p.date), 'YYYY-MM-DD') AS date`);
-            }
-            else if (ctx.body.aggregates.aggregateDate === 'Weekly') {
-                aggregateParameters.push(`to_char(date_trunc('week', p.date), 'WW / YYYY') AS date`);
-            }
-            else if (ctx.body.aggregates.aggregateDate === 'Monthly') {
-                aggregateParameters.push(`to_char(date_trunc('month', p.date), 'Month YYYY') AS date`);
-            }
-            else if (ctx.body.aggregates.aggregateDate === 'Yearly') {
-                aggregateParameters.push(`to_char(date_trunc('year', p.date), 'YYYY') AS date`);
-            }
-        }
-
-        if (ctx.body.aggregates.aggregateSubscription) {
-            groupParameters.push(aggregateParameters.length + 1);
-            orderParameters.push(aggregateParameters.length + 1);
-            aggregateParameters.push(`s.name AS subscription_name`);
-        }
-
-        if (ctx.body.aggregates.aggregateUser) {
-            groupParameters.push(aggregateParameters.length + 1);
-            orderParameters.push(aggregateParameters.length + 1);
-            aggregateParameters.push(`u.username AS username`);
-        }
-
-        if (ctx.body.aggregates.aggregatePaymentMethod) {
-            groupParameters.push(aggregateParameters.length + 1);
-            orderParameters.push(aggregateParameters.length + 1);
-            aggregateParameters.push(`pm.name AS payment_method`);
-        }
-
-        if (ctx.body.aggregates.aggregatePaymentStatus) {
-            groupParameters.push(aggregateParameters.length + 1);
-            orderParameters.push(aggregateParameters.length + 1);
-            aggregateParameters.push(`p.status AS status`);
-        }
-
-        let selectParameters = [...aggregateParameters];
-        selectParameters.push('SUM(p.amount) AS amount');
-        q = createQuery(selectParameters.join(', '));
-    }
-    else {
-        q = createQuery('p.id, p.date, p.amount, p.status, s.name AS subscription_name, pm.name AS payment_method, u.username AS username');
-    }
+    let select = ['p.id', 'p.date', 'p.status', 's.name AS subscription_name', 'pm.name AS payment_method', 'u.username AS username'];
+    let group = [2, 3, 4, 5, 6, 7];
+    let filters = [];
 
     if (checkJSONElementsNotNull(ctx.body.filters)) {
-        let q_filters = [];
-
         if (ctx.body.filters.fromDate) {
-                q_filters.push(`p.date >= '${ctx.body.filters.fromDate}'`);
+            filters.push(`p.date >= '${new Date(ctx.body.filters.fromDate).toISOString()}'`);
         }
         if (ctx.body.filters.toDate) {
-            q_filters.push(`p.date < '${new Date(ctx.body.filters.toDate).addDays(1).toISOString().substring(0, 10)}'`);
+            filters.push(`p.date < '${new Date(ctx.body.filters.toDate).addDays(1).toISOString()}'`);
         }
         if (ctx.body.filters.paymentAmountFrom) {
-            q_filters.push(`p.amount >= ${ctx.body.filters.paymentAmountFrom}`);
+            filters.push(`p.amount >= ${ctx.body.filters.paymentAmountFrom}`);
         }
         if (ctx.body.filters.paymentAmountTo) {
-            q_filters.push(`p.amount <= ${ctx.body.filters.paymentAmountTo}`);
+            filters.push(`p.amount <= ${ctx.body.filters.paymentAmountTo}`);
         }
         if (ctx.body.filters.paymentStatus && ctx.body.filters.paymentStatus !== 'All') {
-            q_filters.push(`p.status = '${ctx.body.filters.paymentStatus}'`);
+            filters.push(`p.status = '${ctx.body.filters.paymentStatus}'`);
         }
         if (ctx.body.filters.paymentMethod && ctx.body.filters.paymentMethod !== 'All') {
-            q_filters.push(`pm.name = '${ctx.body.filters.paymentMethod}'`);
+            filters.push(`pm.name = '${ctx.body.filters.paymentMethod}'`);
         }
         if (ctx.body.filters.subscriptionName) {
-            q_filters.push(`s.name LIKE '%${ctx.body.filters.subscriptionName}%'`);
+            filters.push(`s.name LIKE '%${ctx.body.filters.subscriptionName}%'`);
         }
         if (ctx.body.filters.user) {
-            q_filters.push(`u.username LIKE '%${ctx.body.filters.user}%'`);
+            filters.push(`u.username LIKE '%${ctx.body.filters.user}%'`);
+        }
+    }
+
+    if (checkJSONElementsNotNull(ctx.body.aggregates)) {
+        // select.splice(0, 1);
+        // select[0] = "'All' AS id";
+        select[0] = "'(' || COUNT(DISTINCT p.id) || ')' AS id";
+        group.splice(0, 1);
+
+        if (ctx.body.aggregates.excludeDate) {
+            const index = select.indexOf('p.date');
+            select[index] = 'COUNT(DISTINCT p.date) AS date';
+            const groupIndex = group.indexOf(index + 2);
+            group.splice(groupIndex, 1);
+        } else {
+            if (ctx.body.aggregates.aggregateDate) {
+                if (ctx.body.aggregates.aggregateDate === 'Daily') {
+                    select[1] = (`to_char(date_trunc('day', p.date), 'YYYY-MM-DD') AS date`);
+                } else if (ctx.body.aggregates.aggregateDate === 'Weekly') {
+                    select[1] = (`to_char(date_trunc('week', p.date), 'WW / YYYY') AS date`);
+                } else if (ctx.body.aggregates.aggregateDate === 'Monthly') {
+                    select[1] = (`to_char(date_trunc('month', p.date), 'Month YYYY') AS date`);
+                } else if (ctx.body.aggregates.aggregateDate === 'Yearly') {
+                    select[1] = (`to_char(date_trunc('year', p.date), 'YYYY') AS date`);
+                }
+            }
         }
 
-        let conditions = '';
-        conditions += ' WHERE ';
-        conditions += q_filters.join(' AND ');
+        if (ctx.body.aggregates.excludeSubscription) {
+            const index = select.indexOf('s.name AS subscription_name');
+            select[index] = 'COUNT(DISTINCT s.name) AS subscription_name';
+            const groupIndex = group.indexOf(index + 2);
+            group.splice(groupIndex, 1);
+        }
 
-        sum_q += conditions;
-        q += conditions;
+        if (ctx.body.aggregates.excludeUser) {
+            const index = select.indexOf('u.username AS username');
+            select[index] = 'COUNT(DISTINCT u.username) AS username';
+            const groupIndex = group.indexOf(index + 2);
+            group.splice(groupIndex, 1);
+        }
+
+        if (ctx.body.aggregates.excludePaymentMethod) {
+            const index = select.indexOf('pm.name AS payment_method');
+            select[index] = 'COUNT(DISTINCT pm.name) AS payment_method';
+            const groupIndex = group.indexOf(index + 2);
+            group.splice(groupIndex, 1);
+        }
+
+        if (ctx.body.aggregates.excludePaymentStatus) {
+            const index = select.indexOf('p.status');
+            select[index] = 'COUNT(DISTINCT p.status) AS status';
+            const groupIndex = group.indexOf(index + 2);
+            group.splice(groupIndex, 1);
+        }
     }
 
-    if (groupParameters.length > 0) {
-        q += ' GROUP BY ' + groupParameters.join(', ') + ' ORDER BY ' + orderParameters.join(', ');
+    let conditions = '';
+    if (filters.length > 0) {
+        conditions += 'WHERE ' + filters.join(' AND ');
     }
 
-    else {
-        q += ' ORDER BY p.date';
-    }
+    const q = createQuery(select.join(', '), conditions, group.join(', '), group.join(', '));
+    const sum_q = createSumQuery(conditions);
 
     console.log(q);
     console.log(sum_q);
@@ -164,25 +257,25 @@ api.post('/api/payments', koaBody(), async ctx=> {
     await ctx.pool
         .query(sum_q)
         .then(res => {
-            data.rowsCount = res.rows[0].count;
             data.totalAmount = res.rows[0].total;
         })
         .catch(err =>
             setImmediate(() => {
                 throw err;
             })
-        )
+        );
 
     await ctx.pool
         .query(q)
         .then(res => {
+            data.rowsCount = res.rowCount;
             data.rowsData = res.rows;
         })
         .catch(err =>
             setImmediate(() => {
                 throw err;
             })
-        )
+        );
 
     ctx.body = data;
 });
