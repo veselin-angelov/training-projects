@@ -1,7 +1,7 @@
 const Koa = require('koa');
 const render = require('koa-ejs');
 const path = require('path');
-// const pg = require("pg");
+const pg = require("pg");
 const { Pool } = require('pg');
 
 require('dotenv').config();
@@ -19,15 +19,9 @@ render(app, {
     debug: false
 });
 
-// pg.types.setTypeParser(1184, function(stringValue) {
-//     const match = stringValue.match(new RegExp(/\+\d\d/));
-//
-//     if (match) {
-//         const hours = parseInt(match[0]);
-//         return new Date(stringValue).addHours(hours);
-//     }
-//     return new Date(stringValue);
-// });
+pg.types.setTypeParser(1184, function(stringValue) {
+    return stringValue;
+});
 
 app.use(async (ctx, next) => {
     ctx.pool = new Pool({
@@ -41,6 +35,7 @@ app.use(async (ctx, next) => {
         await next();
     }
     catch(err) {
+        console.log(err);
         ctx.status = err.status || 500;
         ctx.body = {
             error: err.originalError ? err.originalError.message : err.message

@@ -1,26 +1,14 @@
 const Router = require('@koa/router');
-
-const api = new Router();
 const jwt = require('koa-jwt');
 const koaBody = require("koa-body");
+const lodashClonedeep = require('lodash.clonedeep');
+const Ajv = require("ajv");
 
-Date.prototype.addHours = function(h){
-    this.setHours(this.getHours()+h);
-    return this;
-}
+const { reportRequestValidationSchema } = require("./validation_schemas");
+const { reportSchemaConst } = require('./reports_schemas');
 
-Date.prototype.addDays = function (days) {
-    this.setDate(this.getDate() + days);
-    return this;
-};
-
-function checkJSONElementsNotNull (object) {
-    for (const key in object) {
-        if (object[key]) {
-            return true;
-        }
-    }
-}
+const ajv = new Ajv();
+const api = new Router();
 
 api.use(async (ctx, next) => {
     try {
@@ -54,190 +42,103 @@ api.get('/api/date-aggregates', async ctx=> {
 });
 
 api.post('/api/payments', koaBody(), async ctx=> {
-    // let reportSchema = {
-    //     filters: {
-    //         fromDate: {
-    //             type: 'date',
-    //             value: ''
-    //         },
-    //         toDate: {
-    //             type: 'date',
-    //             value: '',
-    //             extraDays: 1
-    //         },
-    //         subscriptionName: {
-    //             type: 'string',
-    //             value: ''
-    //         },
-    //         user: {
-    //             type: 'string',
-    //             value: ''
-    //         },
-    //         paymentMethod: {
-    //             type: 'string',
-    //             value: ''
-    //         },
-    //         paymentStatus: {
-    //             type: 'string',
-    //             value: ''
-    //         },
-    //         paymentAmountFrom: {
-    //             type: 'string',
-    //             value: ''
-    //         },
-    //         paymentAmountTo: {
-    //             type: 'string',
-    //             value: ''
-    //         },
-    //     },
-    //     aggregates: {
-    //         excludeDate: {
-    //             type: 'boolean',
-    //             value: false,
-    //             groups: {
-    //                 aggregateDate: {
-    //                     type: 'string',
-    //                     value: ''
-    //                 }
-    //             }
-    //         },
-    //         excludeSubscription: {
-    //             type: 'boolean',
-    //             value: false
-    //         },
-    //         excludeUser: {
-    //             type: 'boolean',
-    //             value: false
-    //         },
-    //         excludePaymentMethod: {
-    //             type: 'boolean',
-    //             value: false
-    //         },
-    //         excludePaymentStatus: {
-    //             type: 'boolean',
-    //             value: false
-    //         },
-    //     }
-    // }
-    //
-    //
-    // console.log(ctx.body);
+    const valid = ajv.validate(reportRequestValidationSchema, ctx.request.body);
 
-    // for (const element in ctx.body) {
-    //     for (const key in ctx.body[element]) {
-    //         console.log(key);
-    //         console.log(reportSchema[element][key]);
-    //         console.log(ctx.body[element][key]);
-    //         reportSchema[element][key].value = ctx.body[element][key];
-    //     }
-    // }
-    //
-    // console.log(reportSchema);
+    if (!valid) {
+        ctx.status = 400
+        ctx.body = ajv.errors;
+        console.log(ajv.errors);
+        return;
+    }
+
     ctx.body = ctx.request.body;
 
+    let reportSchema = lodashClonedeep(reportSchemaConst);
 
-    let createQuery = (select, filter, group, order) => `
-        SELECT SUM(p.amount) AS amount, ${select}
-        FROM payments p
-        JOIN subscriptions s on p.subscription_id = s.id
-        JOIN payment_methods pm on pm.id = p.payment_method_id
-        JOIN users u on p.user_id = u.id
-        ${filter}
-        GROUP BY ${group}
-        ORDER BY ${order};
-    `;
-
-    let createSumQuery = (filter) => `
-        SELECT SUM(p.amount) AS total
-        FROM payments p
-        JOIN subscriptions s on p.subscription_id = s.id
-        JOIN payment_methods pm on pm.id = p.payment_method_id
-        JOIN users u on p.user_id = u.id
-        ${filter}
-    `;
-
-    let select = ['p.id', 'p.date', 'p.status', 's.name AS subscription_name', 'pm.name AS payment_method', 'u.username AS username'];
-    let group = [2, 3, 4, 5, 6, 7];
     let filters = [];
 
-    if (checkJSONElementsNotNull(ctx.body.filters)) {
-        if (ctx.body.filters.fromDate) {
-            filters.push(`p.date >= '${new Date(ctx.body.filters.fromDate).toISOString()}'`);
+    /**
+     * Handling the filters category in the schema
+     */
+    for (const element in reportSchema.filters) {
+        if (!reportSchema.filters[element].hasOwnProperty('value')) {
+            if (element.includes('Range')) {
+                reportSchema.filters[element].from.value = ctx.body.filters[element].from.value;
+                reportSchema.filters[element].to.value = ctx.body.filters[element].to.value;
+
+                reportSchema.filters[element].from.dbExpression = reportSchema.filters[element].from.dbExpression.replace(`$${element}From_value`, reportSchema.filters[element].from.value);
+                reportSchema.filters[element].to.dbExpression = reportSchema.filters[element].to.dbExpression.replace(`$${element}To_value`, reportSchema.filters[element].to.value);
+
+                if (reportSchema.filters[element].from.value !== '') {
+                    filters.push(reportSchema.filters[element].from.dbExpression);
+                }
+                if (reportSchema.filters[element].to.value !== '') {
+                    filters.push(reportSchema.filters[element].to.dbExpression);
+                }
+            }
+            else {
+                throw Error;
+            }
         }
-        if (ctx.body.filters.toDate) {
-            filters.push(`p.date < '${new Date(ctx.body.filters.toDate).addDays(1).toISOString()}'`);
-        }
-        if (ctx.body.filters.paymentAmountFrom) {
-            filters.push(`p.amount >= ${ctx.body.filters.paymentAmountFrom}`);
-        }
-        if (ctx.body.filters.paymentAmountTo) {
-            filters.push(`p.amount <= ${ctx.body.filters.paymentAmountTo}`);
-        }
-        if (ctx.body.filters.paymentStatus && ctx.body.filters.paymentStatus !== 'All') {
-            filters.push(`p.status = '${ctx.body.filters.paymentStatus}'`);
-        }
-        if (ctx.body.filters.paymentMethod && ctx.body.filters.paymentMethod !== 'All') {
-            filters.push(`pm.name = '${ctx.body.filters.paymentMethod}'`);
-        }
-        if (ctx.body.filters.subscriptionName) {
-            filters.push(`s.name LIKE '%${ctx.body.filters.subscriptionName}%'`);
-        }
-        if (ctx.body.filters.user) {
-            filters.push(`u.username LIKE '%${ctx.body.filters.user}%'`);
+        else {
+            reportSchema.filters[element].value = ctx.body.filters[element].value;
+            reportSchema.filters[element].dbExpression = reportSchema.filters[element].dbExpression.replace(`$${element}_value`, reportSchema.filters[element].value);
+            if (reportSchema.filters[element].value !== '') {
+                filters.push(reportSchema.filters[element].dbExpression);
+            }
         }
     }
 
-    if (checkJSONElementsNotNull(ctx.body.aggregates)) {
-        // select.splice(0, 1);
-        // select[0] = "'All' AS id";
-        select[0] = "'(' || COUNT(DISTINCT p.id) || ')' AS id";
-        group.splice(0, 1);
+    /**
+     * Handling the excludes category in the schema
+     */
+    for (const element in reportSchema.excludes) {
+        reportSchema.excludes[element].value = ctx.body.excludes[element].value;
 
-        if (ctx.body.aggregates.excludeDate) {
-            const index = select.indexOf('p.date');
-            select[index] = 'COUNT(DISTINCT p.date) AS date';
-            const groupIndex = group.indexOf(index + 2);
-            group.splice(groupIndex, 1);
-        } else {
-            if (ctx.body.aggregates.aggregateDate) {
-                if (ctx.body.aggregates.aggregateDate === 'Daily') {
-                    select[1] = (`to_char(date_trunc('day', p.date), 'YYYY-MM-DD') AS date`);
-                } else if (ctx.body.aggregates.aggregateDate === 'Weekly') {
-                    select[1] = (`to_char(date_trunc('week', p.date), 'WW / YYYY') AS date`);
-                } else if (ctx.body.aggregates.aggregateDate === 'Monthly') {
-                    select[1] = (`to_char(date_trunc('month', p.date), 'Month YYYY') AS date`);
-                } else if (ctx.body.aggregates.aggregateDate === 'Yearly') {
-                    select[1] = (`to_char(date_trunc('year', p.date), 'YYYY') AS date`);
+        if (reportSchema.excludes[element].value) {
+            reportSchema.countExcludesAndAggregates += 1;
+            const elementIndex = reportSchema.filters[`${element.replace('Exclude', '')}`].selectArrayIndex;
+            reportSchema.excludesFromArray.push(elementIndex);
+        }
+    }
+
+    /**
+     * Handling the aggregates category in the schema
+     */
+    for (const element in reportSchema.aggregates) {
+        reportSchema.aggregates[element].value = ctx.body.aggregates[element].value;
+
+        if (reportSchema.aggregates[element].value) {
+            reportSchema.countExcludesAndAggregates += 1;
+
+            if (reportSchema.aggregates[element].type === 'date') {
+                const elementColumnName = reportSchema.filters[`${element.replace('Aggregate', '')}`].dbColumnName;
+                const elementIndex = reportSchema.filters[`${element.replace('Aggregate', '')}`].selectArrayIndex - 1;
+
+                if (reportSchema.aggregates[element].value === 'Daily') {
+                    reportSchema.selects[elementIndex].value = (`to_char(date_trunc('day', ${elementColumnName}), 'YYYY-MM-DD') AS date`);
+                } else if (reportSchema.aggregates[element].value === 'Weekly') {
+                    reportSchema.selects[elementIndex].value = (`to_char(date_trunc('week', ${elementColumnName}), 'WW / YYYY') AS date`);
+                } else if (reportSchema.aggregates[element].value === 'Monthly') {
+                    reportSchema.selects[elementIndex].value = (`to_char(date_trunc('month', ${elementColumnName}), 'Month YYYY') AS date`);
+                } else if (reportSchema.aggregates[element].value === 'Yearly') {
+                    reportSchema.selects[elementIndex].value = (`to_char(date_trunc('year', ${elementColumnName}), 'YYYY') AS date`);
+                } else {
+                    throw Error;
                 }
+                continue;
             }
+            throw Error;
         }
+    }
 
-        if (ctx.body.aggregates.excludeSubscription) {
-            const index = select.indexOf('s.name AS subscription_name');
-            select[index] = 'COUNT(DISTINCT s.name) AS subscription_name';
-            const groupIndex = group.indexOf(index + 2);
-            group.splice(groupIndex, 1);
-        }
 
-        if (ctx.body.aggregates.excludeUser) {
-            const index = select.indexOf('u.username AS username');
-            select[index] = 'COUNT(DISTINCT u.username) AS username';
-            const groupIndex = group.indexOf(index + 2);
-            group.splice(groupIndex, 1);
-        }
-
-        if (ctx.body.aggregates.excludePaymentMethod) {
-            const index = select.indexOf('pm.name AS payment_method');
-            select[index] = 'COUNT(DISTINCT pm.name) AS payment_method';
-            const groupIndex = group.indexOf(index + 2);
-            group.splice(groupIndex, 1);
-        }
-
-        if (ctx.body.aggregates.excludePaymentStatus) {
-            const index = select.indexOf('p.status');
-            select[index] = 'COUNT(DISTINCT p.status) AS status';
-            const groupIndex = group.indexOf(index + 2);
-            group.splice(groupIndex, 1);
+    if (reportSchema.countExcludesAndAggregates > 0) {
+        for (const element of reportSchema.excludesFromArray) {
+            reportSchema.groupBy.splice(reportSchema.groupBy.indexOf(element), 1);
+            const index = element - 1;
+            const dbColumnName = reportSchema.selects[index].value.substr(0, reportSchema.selects[index].value.indexOf('AS'));
+            reportSchema.selects[index].value = reportSchema.selects[index].value.replace(dbColumnName, `'(' || COUNT(DISTINCT ${dbColumnName}) || ')' `);
         }
     }
 
@@ -246,24 +147,36 @@ api.post('/api/payments', koaBody(), async ctx=> {
         conditions += 'WHERE ' + filters.join(' AND ');
     }
 
-    const q = createQuery(select.join(', '), conditions, group.join(', '), group.join(', '));
-    const sum_q = createSumQuery(conditions);
+    let groupStatements = '';
+    let orderStatements = '';
+    if (reportSchema.groupBy.length > 0) {
+        groupStatements += 'GROUP BY ' + reportSchema.groupBy.join(', ');
+        orderStatements += 'ORDER BY ' + reportSchema.groupBy.join(', ');
+    }
 
-    console.log(q);
-    console.log(sum_q);
+    let selects = [];
+    for (const select of reportSchema.selects) {
+        selects.push(select.value);
+    }
+
+    const q = reportSchema.query(selects.join(', '), conditions, groupStatements, orderStatements);
 
     let data = {};
 
-    await ctx.pool
-        .query(sum_q)
-        .then(res => {
-            data.totalAmount = res.rows[0].total;
-        })
-        .catch(err =>
-            setImmediate(() => {
-                throw err;
+    if (reportSchema.hasOwnProperty('sumQuery') && reportSchema.sumQuery !== '') {
+        const sum_q = reportSchema.sumQuery(conditions);
+
+        await ctx.pool
+            .query(sum_q)
+            .then(res => {
+                data.totalAmount = res.rows[0].total;
             })
-        );
+            .catch(err =>
+                setImmediate(() => {
+                    throw err;
+                })
+            );
+    }
 
     await ctx.pool
         .query(q)

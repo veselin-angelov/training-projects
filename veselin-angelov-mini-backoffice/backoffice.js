@@ -3,6 +3,8 @@ const Router = require('@koa/router');
 const backoffice = new Router();
 const jwt = require('koa-jwt');
 
+const { reportSchemaConst } = require('./reports_schemas');
+
 backoffice.use(async (ctx, next) => {
     try {
         await next();
@@ -20,21 +22,18 @@ backoffice.use(async (ctx, next) => {
 backoffice.use(jwt({ secret: process.env.SECRET_KEY, key: 'jwtdata', cookie: 'JWT_TOKEN' }));
 
 backoffice.get('/', async ctx => {
-    ctx.body = `Hello, ${ctx.state.jwtdata.username}`;
     await ctx.render('home', {
         jwtdata: ctx.state.jwtdata
     });
 });
 
 backoffice.get('/reports/payments', async ctx => {
-    console.log(ctx.state.jwtdata);
+    await ctx.render('report1', {
+        schema: reportSchemaConst
+    });
+});
 
-    // ctx.pool.query('SELECT * FROM payments;', (err, res) => {
-    //     if (err) {
-    //         throw err
-    //     }
-    //     console.log('data:', res.rows)
-    // })
+backoffice.get('/reports/payments-const', async ctx => {
     await ctx.render('report', {
         jwtdata: ctx.state.jwtdata
     });

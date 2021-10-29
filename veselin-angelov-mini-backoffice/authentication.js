@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const Ajv = require("ajv");
 
-const { loginSchema, loginResponseSchema } = require('./schemas.js');
+const { loginSchema, loginResponseSchema } = require('./validation_schemas.js');
 
 const ajv = new Ajv();
 const authentication = new Router();

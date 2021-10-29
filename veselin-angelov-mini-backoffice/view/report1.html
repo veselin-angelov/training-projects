@@ -1,0 +1,286 @@
+<style>
+    .center {
+        margin-left: auto;
+        margin-right: auto;
+        max-width: 80vw;
+        margin-top: 20px;
+    }
+    .money {
+        text-align: end;
+    }
+    .cont {
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .item1 {
+        flex-grow: 1;
+        margin-right: 10px;
+    }
+
+    .item2 {
+        flex-grow: 1;
+        margin-left: 10px;
+        margin-right: 10px;
+    }
+
+    .item3 {
+        flex-grow: 1;
+        margin-left: 10px;
+    }
+
+    .item4 {
+        flex-grow: 1;
+        margin-right: 10px;
+    }
+
+    .checkbox {
+        margin-left: 20px;
+        margin-top: 37px;
+    }
+</style>
+<link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css">
+<script src="https://code.jquery.com/ui/1.13.0-rc.2/jquery-ui.min.js" integrity="sha256-RQLbEU539dpygNMsBGZlplus6CkitaLy0btTCHcULpI=" crossorigin="anonymous"></script>
+
+
+<div class="center">
+    <h2>Search query:</h2>
+    <form id='form' action="#res">
+        <% for(const element in schema.filters) { %>
+            <div class="cont">
+            <% if (element.includes('Range')) { %>
+                <div class='form-group item1'>
+                    <label for='from-<%= element %>'><%= schema.filters[element].label %> from</label>
+                    <input class='form-control' id='from-<%= element %>' name='from-<%= element %>' type='<%= schema.filters[element].htmlType %>' autocomplete="off"
+                        <% if (schema.filters[element].htmlType === 'number') { %>
+                            step="any"
+                        <% } %>
+                    />
+                </div>
+                <div class='form-group item2'>
+                    <label for='to-<%= element %>'><%= schema.filters[element].label %> to</label>
+                    <input class='form-control' id='to-<%= element %>' name='to-<%= element %>' type='<%= schema.filters[element].htmlType %>' autocomplete="off"
+                        <% if (schema.filters[element].htmlType === 'number') { %>
+                            step="any"
+                        <% } %>
+                    />
+                </div>
+            <% } else { %>
+                <% if (schema.filters[element].predefinedValues) { %>
+                    <div class='form-group item4'>
+                        <label for='<%= element %>'><%= schema.filters[element].label %></label>
+                        <br>
+                        <select class="form-control" id='<%= element %>' name='<%= element %>'>
+                            <option value="">All</option>
+                            <% for (const value of schema.filters[element].predefinedValues) { %>
+                                <option value="<%= value %>"><%= value %></option>
+                            <% } %>
+                        </select>
+                    </div>
+                <% } else { %>
+                    <div class='form-group item4'>
+                        <label for='<%= element %>'><%= schema.filters[element].label %></label>
+                        <input class='form-control' id='<%= element %>' name='<%= element %>' type='text'/>
+                    </div>
+                <% } %>
+            <% } %>
+            <% if (schema.aggregates[`${element}Aggregate`]) { %>
+                <div class='form-group item2'>
+                    <label for='<%= element %>Aggregate'>Aggregate</label>
+                    <br>
+                    <select class="form-control" id='<%= element %>Aggregate' name='<%= element %>Aggregate'>
+                        <option value="">All</option>
+                        <% for (const aggregate of schema.aggregates[`${element}Aggregate`].predefinedValues) { %>
+                            <option value="<%= aggregate %>"><%= aggregate %></option>
+                        <% } %>
+                    </select>
+                </div>
+            <% } %>
+            <% if (schema.excludes.hasOwnProperty(`${element}Exclude`)) { %>
+                <div class="checkbox">
+                    <input class="form-check-input exclude-checkbox" type="checkbox" id="<%= element %>Exclude" name="<%= element %>Exclude">
+                    <label class="form-check-label" for="<%= element %>Exclude">Exclude</label>
+                </div>
+            <% } %>
+            </div>
+        <% } %>
+        <input type='submit' value='Submit' class='btn btn-primary' />
+    </form>
+
+    <div id="results">
+        <br>
+        <h2>Results: </h2>
+        <div class="cont">
+            <h3 id="rows-count"></h3>
+        </div>
+
+        <table class="center table table-striped table-bordered table-hover">
+            <thead>
+            <tr>
+                <% for (const element of schema.selects) { %>
+                    <th><%= element.label %></th>
+                <% } %>
+            </tr>
+            </thead>
+            <tbody class="table-body">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const dateFormat = "dd-mm-yy";
+    let errorElement;
+
+    function getDate( element ) {
+        let date;
+        try {
+            date = $.datepicker.parseDate( dateFormat, element.value );
+        } catch( error ) {
+            console.log(error);
+            date = null;
+        }
+
+        return date;
+    }
+
+    $(function() {
+        $("#results").hide();
+
+        <% for (const element in schema.filters) { %>
+            <% if (element.includes('date') && element.includes('Range')) { %>
+                const from = $( "#from-<%= element %>" )
+                    .datepicker({
+                        changeMonth: true,
+                        numberOfMonths: 2,
+                        dateFormat: dateFormat
+                    })
+                    .on( "change", function() {
+                        to.datepicker( "option", "minDate", getDate( this ) );
+                    });
+                const to = $( "#to-<%= element %>" )
+                    .datepicker({
+                        changeMonth: true,
+                        numberOfMonths: 2,
+                        dateFormat: dateFormat
+                    })
+                    .on( "change", function() {
+                        from.datepicker( "option", "maxDate", getDate( this ) );
+                    });
+            <% } else if (element.includes('date')) { %>
+                $( "#to-<%= element %>" ).datepicker({dateFormat: dateFormat});
+            <% } %>
+        <% } %>
+
+    });
+
+    $("#form").submit(function (e) {
+        e.preventDefault();
+        $(".table-body > tr").remove();
+
+        if (errorElement) {
+            $("#ajv-error-message").remove();
+            errorElement.removeClass('border-danger');
+        }
+
+        let formData = {
+            filters: {},
+            excludes: {},
+            aggregates: {},
+        };
+
+        let el;
+
+        <% for (const element in schema.filters) { %>
+            el = '<%= element %>';
+            formData.filters[el] = {};
+            <% if (element.includes(`Range`)) { %>
+                formData.filters[el].from = {};
+                formData.filters[el].to = {};
+
+                formData.filters[el].from.value = $(`#from-${el}`).val();
+                formData.filters[el].to.value = $(`#to-${el}`).val();
+
+                <% if (schema.filters[element].type === 'date') { %>
+                    if ($(`#to-${el}`).val()) {
+                        formData.filters[el].to.value += ' 24:00:00';
+                    }
+                <% } %>
+            <% } else { %>
+                formData.filters[el].value = $(`#${el}`).val();
+            <% } %>
+        <% } %>
+
+        <% for (const exclude in schema.excludes) { %>
+            formData.excludes[`<%= exclude %>`] = {};
+            formData.excludes['<%= exclude %>'].value = $('#<%= exclude %>').is(':checked');
+        <% } %>
+
+        <% for (const aggregate in schema.aggregates) { %>
+            formData.aggregates[`<%= aggregate %>`] = {};
+            formData.aggregates['<%= aggregate %>'].value = $('#<%= aggregate %>').val();
+        <% } %>
+
+        // formData.filters.dateRange.to.value = 1;
+        // formData.filters.subscriptionName.value = 1;
+
+        $.ajax({
+            type: "POST",
+            url: "<%= schema.endpoint %>",
+            data: JSON.stringify(formData),
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            statusCode: {
+                200: (data) => {
+                    const tbody = $(".table-body");
+
+                    $("#results").show();
+                    $("#rows-count").html(`${data.rowsCount} rows`);
+
+                    for (const row of data.rowsData) {
+                        tbody.append(`<tr>
+                            <% for (const element of schema.selects) { %>
+                                <td
+                                    <% if (element.type === 'money') { %>
+                                        class='money'
+                                    <% } %>
+                                >
+                                ${row['<%= element.value.substr(element.value.indexOf("AS") + 3) %>']}
+                                </td>
+                            <% } %>
+                        </tr>`);
+                    }
+
+                    tbody.append(`<tr>
+                        <td colspan="6"></td>
+                        <td class="money">$${data.totalAmount}</td>
+                    </tr>`);
+                },
+                302: (data) => {
+                    window.location.href = data.responseJSON.redirect;
+                },
+                400: (data) => {
+                    const fieldName = data.responseJSON[0].instancePath.substring(
+                        data.responseJSON[0].instancePath.indexOf("/", 2) + 1,
+                        data.responseJSON[0].instancePath.lastIndexOf("/")
+                    );
+
+                    const fieldNameAttributes = fieldName.split('/');
+
+                    let elementName = fieldNameAttributes[0];
+
+                    if (fieldNameAttributes.length === 2) {
+                        elementName = `${fieldNameAttributes[1]}-${fieldNameAttributes[0]}`
+                    }
+
+                    errorElement = $(`input[name=${elementName}]`);
+
+                    errorElement.addClass('border-danger');
+                    errorElement.parent().append(
+                        `<small id="ajv-error-message" class="form-text text-muted">${data.responseJSON[0].message}</small>`
+                    );
+                }
+            }
+        });
+    });
+</script>

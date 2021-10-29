@@ -263,32 +263,66 @@
 
             const formData = {
                 filters: {
-                    fromDate: '',
-                    toDate: '',
-                    subscriptionName: $('#subscription-name').val(),
-                    user: $('#user').val(),
-                    paymentMethod: $('#payment-method').val(),
-                    paymentStatus: $('#payment-status').val(),
-                    paymentAmountFrom: $('#payment-amount-from').val(),
-                    paymentAmountTo: $('#payment-amount-to').val(),
+                    dateRange: {
+                        from: {
+                            value: ''
+                        },
+                        to: {
+                            value: ''
+                        }
+                    },
+                    subscriptionName: {
+                        value: $('#subscription-name').val()
+                    },
+                    user: {
+                        value: $('#user').val()
+                    },
+                    paymentMethod: {
+                        value: $('#payment-method').val()
+                    },
+                    paymentStatus: {
+                        value: $('#payment-status').val()
+                    },
+                    paymentAmountRange: {
+                        from: {
+                            value: $('#payment-amount-from').val()
+                        },
+                        to: {
+                            value: $('#payment-amount-to').val()
+                        }
+                    },
+                },
+                excludes: {
+                    dateRangeExclude: {
+                        value: $('#exclude-date').is(':checked'),
+                    },
+                    subscriptionNameExclude: {
+                        value: $('#exclude-subscription-name').is(':checked')
+                    },
+                    userExclude: {
+                        value: $('#exclude-user').is(':checked')
+                    },
+                    paymentMethodExclude: {
+                        value: $('#exclude-payment-method').is(':checked')
+                    },
+                    paymentStatusExclude: {
+                        value: $('#exclude-payment-status').is(':checked')
+                    }
                 },
                 aggregates: {
-                    aggregateDate: $('#aggregate-date').val(),
-                    excludeDate: $('#exclude-date').is(':checked'),
-                    excludeSubscription: $('#exclude-subscription-name').is(':checked'),
-                    excludeUser: $('#exclude-user').is(':checked'),
-                    excludePaymentMethod: $('#exclude-payment-method').is(':checked'),
-                    excludePaymentStatus: $('#exclude-payment-status').is(':checked'),
+                    dateRangeAggregate: {
+                        value: $('#aggregate-date').val()
+                    }
                 }
             };
             const fromDate = $('#from-date');
             const toDate = $('#to-date');
 
             if (fromDate.val()) {
-                formData.filters.fromDate = $.datepicker.parseDate( 'dd-mm-yy', fromDate.val() ).toISOString();
+                formData.filters.dateRange.from.value = $.datepicker.parseDate( 'dd-mm-yy', fromDate.val() ).toISOString();
             }
             if (toDate.val()) {
-                formData.filters.fromDate = $.datepicker.parseDate( 'dd-mm-yy', toDate.val() ).toISOString();
+                formData.filters.dateRange.to.value = $.datepicker.parseDate( 'dd-mm-yy', toDate.val() ).toISOString();
             }
 
             // console.log(formData);
@@ -310,7 +344,7 @@
 
                         for (const row of data.rowsData) {
 
-                            if (formData.aggregates.aggregateDate === '' && row.date && !formData.aggregates.excludeDate) {
+                            if (formData.aggregates.dateRangeAggregate.value === '' && row.date && !formData.excludes.dateRangeExclude.value) {  // TODO check if it works
                                 row.date = new Date(row.date).toLocaleString('en-GB');
                             }
 
